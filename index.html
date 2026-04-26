@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0a0c0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Panier">
+<link rel="manifest" href="manifest.json">
+<title>Panier — Prix d'épicerie au Québec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0c0f;
+  --bg2:#111318;
+  --bg3:#181b21;
+  --bg4:#1e222a;
+  --border:#252930;
+  --border2:#2e3340;
+  --text:#eceef2;
+  --text2:#9ca3af;
+  --text3:#4b5563;
+  --green:#22c55e;
+  --green-dim:rgba(34,197,94,0.12);
+  --red:#ef4444;
+  --red-dim:rgba(239,68,68,0.12);
+  --amber:#f59e0b;
+  --amber-dim:rgba(245,158,11,0.1);
+  --accent:#f0f;
+  --accent2:#a855f7;
+  --accent-dim:rgba(168,85,247,0.12);
+  --pro:#f59e0b;
+  --pro-dim:rgba(245,158,11,0.1);
+  --r:12px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+
+/* ── SCREENS ── */
+.screen{display:none;flex-direction:column;height:100%;overflow:hidden}
+.screen.active{display:flex}
+
+/* ── AUTH SCREEN ── */
+#screen-auth{align-items:center;justify-content:center;padding:32px 24px;background:var(--bg)}
+.auth-logo{font-family:'Syne',sans-serif;font-size:42px;font-weight:800;letter-spacing:-0.03em;margin-bottom:8px;background:linear-gradient(135deg,#fff 0%,#a855f7 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.auth-tag{font-size:14px;color:var(--text2);margin-bottom:48px;text-align:center;line-height:1.6}
+.auth-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:28px 24px}
+.auth-tabs{display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:4px;margin-bottom:24px}
+.auth-tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:500;border-radius:7px;cursor:pointer;color:var(--text2);transition:all .2s}
+.auth-tab.active{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px;font-weight:500;letter-spacing:0.03em}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:15px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
+.field input:focus{border-color:var(--accent2)}
+.btn-primary{width:100%;background:var(--accent2);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:600;font-family:'Syne',sans-serif;cursor:pointer;letter-spacing:0.02em;transition:opacity .15s}
+.btn-primary:active{opacity:.85}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.auth-divider{text-align:center;font-size:12px;color:var(--text3);margin:20px 0}
+.btn-ghost{width:100%;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:14px;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .15s}
+.btn-ghost:active{background:var(--bg3)}
+.auth-msg{font-size:12px;color:var(--red);margin-top:10px;text-align:center;min-height:18px}
+
+/* ── NAV ── */
+.nav{display:flex;background:var(--bg2);border-top:1px solid var(--border);padding:8px 0 max(8px,env(safe-area-inset-bottom));flex-shrink:0}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;cursor:pointer;border:none;background:transparent;color:var(--text3);transition:color .15s;position:relative}
+.nav-btn.active{color:var(--accent2)}
+.nav-icon{font-size:20px;line-height:1}
+.nav-label{font-size:10px;font-weight:500;letter-spacing:0.03em}
+.nav-btn.scan-btn{background:var(--accent2);border-radius:16px;margin:0 8px;color:#fff;flex:0 0 auto;width:56px;height:48px;padding:0;justify-content:center}
+.nav-btn.scan-btn .nav-icon{font-size:24px}
+
+/* ── APP HEADER ── */
+.app-header{padding:16px 16px 12px;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
+.app-header-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.02em}
+.header-actions{display:flex;gap:8px;align-items:center}
+.icon-btn{background:var(--bg3);border:1px solid var(--border);border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;transition:background .15s}
+.icon-btn:active{background:var(--bg4)}
+.pro-badge{background:var(--pro-dim);color:var(--pro);border:1px solid rgba(245,158,11,0.3);border-radius:6px;font-size:10px;font-weight:700;font-family:'Syne',sans-serif;padding:3px 7px;letter-spacing:0.05em}
+.free-badge{background:var(--bg3);color:var(--text3);border:1px solid var(--border);border-radius:6px;font-size:10px;font-weight:600;padding:3px 7px;letter-spacing:0.05em}
+
+/* ── SEARCH ── */
+#screen-search{background:var(--bg)}
+.search-header{padding:12px 16px 8px;flex-shrink:0}
+.search-wrap{position:relative}
+.search-input{width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:12px;padding:12px 40px 12px 42px;font-size:16px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
+.search-input:focus{border-color:var(--accent2)}
+.search-input::placeholder{color:var(--text3)}
+.s-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none}
+.s-clear{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:var(--border2);border:none;color:var(--text2);width:20px;height:20px;border-radius:50%;cursor:pointer;display:none;align-items:center;justify-content:center;font-size:11px}
+.s-clear.show{display:flex}
+
+.cats-scroll{display:flex;gap:6px;overflow-x:auto;padding:8px 16px 4px;scrollbar-width:none;flex-shrink:0}
+.cats-scroll::-webkit-scrollbar{display:none}
+.cat-chip{flex-shrink:0;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:all .15s;white-space:nowrap}
+.cat-chip.active{background:var(--accent-dim);border-color:var(--accent2);color:var(--accent2)}
+
+.results-scroll{flex:1;overflow-y:auto;padding:6px 12px 16px}
+
+.empty-state{text-align:center;padding:64px 24px;color:var(--text3)}
+.empty-icon{font-size:40px;margin-bottom:12px}
+.empty-text{font-size:15px;line-height:1.6}
+
+/* ── ALERT BADGES ── */
+.alert-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;font-family:'DM Mono',monospace;margin-top:3px;letter-spacing:0.02em}
+.badge-overpriced{color:var(--red);background:var(--red-dim);border:1px solid rgba(239,68,68,0.25)}
+.badge-floor{color:var(--green);background:var(--green-dim);border:1px solid rgba(34,197,94,0.25)}
+.badge-shrink{color:var(--amber);background:var(--amber-dim);border:1px solid rgba(245,158,11,0.3)}
+
+/* Product card */
+.pcard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:7px;overflow:hidden;cursor:pointer;transition:border-color .15s}
+.pcard:active{background:var(--bg3)}
+.pcard.open{border-color:var(--border2)}
+.pcard-top{padding:12px 13px;display:flex;align-items:center;gap:10px}
+.pcard-icon{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
+.pcard-info{flex:1;min-width:0}
+.pcard-name{font-size:14px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'Syne',sans-serif}
+.pcard-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.pcard-badges{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.pcard-right{text-align:right;flex-shrink:0}
+.pcard-price{font-size:18px;font-weight:600;font-family:'DM Mono',monospace;color:var(--text)}
+.pcard-price100{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:1px}
+.pcard-store{font-size:11px;color:var(--text3);margin-top:1px}
+.trend{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:500;padding:2px 6px;border-radius:5px;font-family:'DM Mono',monospace;margin-top:3px}
+.trend-up{color:var(--red);background:var(--red-dim)}
+.trend-dn{color:var(--green);background:var(--green-dim)}
+.trend-st{color:var(--text3);background:var(--bg3)}
+
+.pcard-detail{border-top:1px solid var(--border);padding:12px 13px;background:var(--bg)}
+.stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:12px}
+.stat{background:var(--bg3);border-radius:8px;padding:8px;text-align:center}
+.stat-l{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.stat-v{font-size:15px;font-weight:600;font-family:'DM Mono',monospace}
+.sec-title{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:7px;font-weight:500}
+.store-rows{margin-bottom:12px}
+.store-r{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.store-n{font-size:12px;color:var(--text2);width:76px;flex-shrink:0}
+.bar-wrap{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;background:var(--accent2);transition:width .4s ease}
+.store-p{font-size:12px;font-family:'DM Mono',monospace;color:var(--text);min-width:40px;text-align:right}
+.store-c{font-size:10px;color:var(--text3);min-width:24px;text-align:right}
+.hist-rows{}
+.hist-r{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:var(--bg3);margin-bottom:3px}
+.hist-d{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
+.hist-s{font-size:11px;color:var(--text2);flex:1;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-p{font-size:12px;font-weight:500;font-family:'DM Mono',monospace;color:var(--text)}
+.hist-100g{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-left:4px}
+.hist-shrink-flag{font-size:9px;color:var(--amber);margin-left:4px}
+
+/* locked overlay */
+.locked-overlay{position:relative;margin-top:4px}
+.locked-overlay::after{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 0%,var(--bg) 60%);pointer-events:none;border-radius:0 0 8px 8px}
+.unlock-cta{margin-top:8px;background:var(--pro-dim);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.unlock-text{font-size:12px;color:var(--pro);font-weight:500}
+.unlock-price{font-size:12px;font-family:'DM Mono',monospace;color:var(--pro)}
+
+/* ── SCANNER SCREEN ── */
+#screen-scan{background:#000;position:relative}
+.cam-area{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#cam-video{width:100%;height:100%;object-fit:cover}
+.cam-overlay{position:absolute;inset:0;pointer-events:none}
+.scan-frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);width:78%;max-width:320px;aspect-ratio:3/4;border:2px solid rgba(255,255,255,0.6);border-radius:16px}
+.scan-corner{position:absolute;width:24px;height:24px;border-color:#a855f7;border-style:solid}
+.scan-corner.tl{top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:8px 0 0 0}
+.scan-corner.tr{top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 8px 0 0}
+.scan-corner.bl{bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 8px}
+.scan-corner.br{bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 8px 0}
+.scan-line{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#a855f7,transparent);animation:scanline 2s ease-in-out infinite}
+@keyframes scanline{0%{top:10%}100%{top:90%}}
+.scan-hint{position:absolute;bottom:20px;left:0;right:0;text-align:center;font-size:13px;color:rgba(255,255,255,0.7)}
+.scan-controls{display:flex;align-items:center;justify-content:space-between;padding:16px 24px max(20px,env(safe-area-inset-bottom));background:#000;flex-shrink:0}
+.scan-close{background:rgba(255,255,255,0.1);border:none;color:#fff;border-radius:50%;width:44px;height:44px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.scan-capture{background:#fff;border:none;border-radius:50%;width:64px;height:64px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .1s}
+.scan-capture:active{transform:scale(0.93)}
+.scan-capture-inner{width:52px;height:52px;background:#fff;border:3px solid #000;border-radius:50%}
+.scan-upload{background:rgba(255,255,255,0.1);border:none;color:#fff;border-radius:50%;width:44px;height:44px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#file-input{display:none}
+.cam-status{position:absolute;top:16px;left:0;right:0;text-align:center;font-size:12px;color:rgba(255,255,255,0.5);pointer-events:none}
+
+/* ── VALIDATION SCREEN ── */
+#screen-validate{background:var(--bg)}
+.val-header{padding:16px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:12px}
+.val-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;flex:1}
+.val-store-badge{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--text2)}
+.val-scroll{flex:1;overflow-y:auto;padding:12px}
+.val-processing{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:16px;padding:40px}
+.val-spinner{width:44px;height:44px;border:3px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.val-proc-text{font-size:14px;color:var(--text2);text-align:center;line-height:1.6}
+.val-proc-sub{font-size:12px;color:var(--text3);text-align:center}
+
+.val-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.val-item-top{padding:12px 13px;display:flex;align-items:center;gap:10px}
+.val-status{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer}
+.val-status.ok{background:var(--green-dim);color:var(--green)}
+.val-status.bad{background:var(--red-dim);color:var(--red)}
+.val-status.warn{background:var(--amber-dim);color:var(--amber)}
+.val-item-info{flex:1;min-width:0}
+.val-raw{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.val-name{font-size:14px;font-weight:500;color:var(--text);font-family:'Syne',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.val-cat{font-size:11px;color:var(--text3)}
+.val-price-block{text-align:right;flex-shrink:0}
+.val-price{font-size:16px;font-weight:600;font-family:'DM Mono',monospace}
+.val-price100{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
+.val-qty{font-size:11px;color:var(--text3)}
+.val-edit{padding:0 13px 12px;display:none}
+.val-edit.open{display:block}
+.val-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.val-field label{display:block;font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:500}
+.val-field input,.val-field select{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
+.val-field input:focus,.val-field select:focus{border-color:var(--accent2)}
+.val-field-full{grid-column:1/-1}
+.confidence-bar{height:3px;background:var(--bg3);border-radius:2px;margin:4px 0 8px;overflow:hidden}
+.confidence-fill{height:100%;border-radius:2px;transition:width .3s}
+
+.val-footer{padding:16px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:8px}
+.btn-sec{flex:1;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:14px;font-family:'DM Sans',sans-serif;cursor:pointer}
+.btn-confirm{flex:2;background:var(--green);color:#000;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;font-family:'Syne',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-confirm:active{opacity:.85}
+
+/* ── DASHBOARD ── */
+#screen-dash{background:var(--bg)}
+.dash-scroll{flex:1;overflow-y:auto;padding:0 0 16px}
+.dash-section{padding:16px 16px 8px}
+.dash-section-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;font-weight:500;margin-bottom:12px}
+.kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.kpi-label{font-size:11px;color:var(--text3);margin-bottom:6px}
+.kpi-val{font-size:24px;font-weight:700;font-family:'DM Mono',monospace;color:var(--text)}
+.kpi-sub{font-size:11px;color:var(--text3);margin-top:3px}
+.kpi-up{color:var(--red)}.kpi-dn{color:var(--green)}
+.kpi-ipc{background:linear-gradient(135deg,var(--bg2) 0%,rgba(168,85,247,0.06) 100%);border-color:rgba(168,85,247,0.2)}
+.kpi-ipc .kpi-val{background:linear-gradient(135deg,#fff,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+
+/* ── IPC CHART ── */
+.ipc-chart-wrap{padding:0 16px 16px}
+.ipc-chart-card{background:var(--bg2);border:1px solid rgba(168,85,247,0.2);border-radius:16px;padding:16px;overflow:hidden}
+.ipc-chart-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.ipc-chart-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text)}
+.ipc-chart-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.ipc-chart-val{text-align:right}
+.ipc-chart-pct{font-family:'DM Mono',monospace;font-size:22px;font-weight:700}
+.ipc-chart-pct.up{color:var(--red)}
+.ipc-chart-pct.dn{color:var(--green)}
+.ipc-chart-pct.flat{color:var(--text2)}
+.ipc-chart-base{font-size:10px;color:var(--text3);margin-top:2px}
+.ipc-svg{width:100%;overflow:visible}
+.ipc-months{display:flex;justify-content:space-between;padding:0 4px;margin-top:6px}
+.ipc-month-label{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace}
+
+/* ── ALERTS PANEL ── */
+.alerts-panel{padding:0 16px 12px}
+.alert-item{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.alert-dot-red{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;box-shadow:0 0 6px var(--red)}
+.alert-dot-green{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 6px var(--green)}
+.alert-dot-amber{width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0;box-shadow:0 0 6px var(--amber)}
+.alert-info{flex:1;min-width:0}
+.alert-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert-msg{font-size:11px;color:var(--text3);margin-top:1px}
+.alert-price{font-family:'DM Mono',monospace;font-size:13px;font-weight:500}
+
+.recent-list{}
+.recent-item{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--border)}
+.recent-item:last-child{border-bottom:none}
+.r-icon{width:34px;height:34px;background:var(--bg3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.r-info{flex:1;min-width:0}
+.r-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.r-sub{font-size:11px;color:var(--text3)}
+.r-price{font-family:'DM Mono',monospace;font-size:14px;color:var(--text)}
+
+/* Paywall */
+.paywall-banner{margin:0 16px 8px;background:linear-gradient(135deg,var(--bg3) 0%,rgba(168,85,247,0.08) 100%);border:1px solid rgba(168,85,247,0.2);border-radius:16px;padding:18px;position:relative;overflow:hidden}
+.paywall-banner::before{content:'✦';position:absolute;top:-10px;right:16px;font-size:60px;color:rgba(168,85,247,0.06);pointer-events:none}
+.pw-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:4px}
+.pw-sub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:14px}
+.pw-features{display:flex;flex-direction:column;gap:5px;margin-bottom:16px}
+.pw-feat{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2)}
+.pw-feat::before{content:'✓';color:var(--green);font-weight:700;font-size:13px}
+.pw-price-row{display:flex;align-items:baseline;gap:6px;margin-bottom:14px}
+.pw-price{font-family:'DM Mono',monospace;font-size:28px;font-weight:500;color:var(--text)}
+.pw-per{font-size:13px;color:var(--text3)}
+.btn-upgrade{background:var(--accent2);color:#fff;border:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;font-family:'Syne',sans-serif;cursor:pointer;width:100%;letter-spacing:0.02em;transition:opacity .15s}
+.btn-upgrade:active{opacity:.85}
+.pw-legal{font-size:10px;color:var(--text3);text-align:center;margin-top:8px}
+
+/* ── PROFILE SCREEN ── */
+#screen-profile{background:var(--bg)}
+.profile-scroll{flex:1;overflow-y:auto}
+.profile-hero{padding:28px 20px 20px;text-align:center;border-bottom:1px solid var(--border)}
+.avatar{width:68px;height:68px;border-radius:50%;background:var(--accent-dim);border:2px solid rgba(168,85,247,0.3);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:28px;font-family:'Syne',sans-serif;font-weight:700;color:var(--accent2)}
+.profile-name{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;margin-bottom:3px}
+.profile-email{font-size:13px;color:var(--text3)}
+.profile-plan{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text2);margin-top:10px}
+.profile-region{font-size:12px;color:var(--text3);margin-top:6px}
+
+.menu-section{padding:16px 16px 8px}
+.menu-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;font-weight:500}
+.menu-item{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;cursor:pointer;transition:background .15s}
+.menu-item:active{background:var(--bg3)}
+.menu-item-icon{width:34px;height:34px;background:var(--bg3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.menu-item-text{flex:1}
+.menu-item-title{font-size:14px;font-weight:500}
+.menu-item-sub{font-size:11px;color:var(--text3);margin-top:1px}
+.menu-item-arrow{color:var(--text3);font-size:14px}
+.menu-item.danger .menu-item-title{color:var(--red)}
+
+/* Region picker */
+.region-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;color:var(--text);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.1em;outline:none}
+.region-input:focus{border-color:var(--accent2)}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:11px 18px;font-size:13px;color:var(--text);z-index:999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;max-width:90vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.success{border-color:rgba(34,197,94,0.3);color:var(--green)}
+.toast.error{border-color:rgba(239,68,68,0.3);color:var(--red)}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;align-items:flex-end}
+.modal-bg.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:24px 24px 0 0;padding:24px 20px max(24px,env(safe-area-inset-bottom));width:100%;max-height:85vh;overflow-y:auto}
+.modal-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:4px}
+.modal-sub{font-size:13px;color:var(--text2);margin-bottom:24px;line-height:1.5}
+
+/* Region modal */
+.region-modal-wrap{padding:0}
+.region-code-display{font-family:'DM Mono',monospace;font-size:36px;font-weight:700;color:var(--accent2);text-align:center;padding:16px 0;letter-spacing:0.15em}
+.region-hint{font-size:12px;color:var(--text3);text-align:center;margin-bottom:20px}
+</style>
+</head>
+<body>
+
+<!-- ── AUTH ── -->
+<div id="screen-auth" class="screen active">
+  <div style="text-align:center">
+    <div class="auth-logo">panier.</div>
+    <div class="auth-tag">Suivez les vrais prix d'épicerie<br>au Québec, ensemble.</div>
+  </div>
+  <div class="auth-card">
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchAuthTab('login')">Connexion</div>
+      <div class="auth-tab" onclick="switchAuthTab('signup')">Créer un compte</div>
+    </div>
+    <div id="auth-login">
+      <div class="field"><label>Courriel</label><input type="email" id="login-email" placeholder="vous@exemple.com" autocomplete="email"></div>
+      <div class="field"><label>Mot de passe</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
+      <button class="btn-primary" onclick="doLogin()">Connexion</button>
+    </div>
+    <div id="auth-signup" style="display:none">
+      <div class="field"><label>Prénom</label><input type="text" id="signup-name" placeholder="Votre prénom" autocomplete="given-name"></div>
+      <div class="field"><label>Courriel</label><input type="email" id="signup-email" placeholder="vous@exemple.com" autocomplete="email"></div>
+      <div class="field"><label>Mot de passe</label><input type="password" id="signup-pass" placeholder="8 caractères minimum" autocomplete="new-password"></div>
+      <div class="field"><label>Code postal (3 premiers caractères)</label><input type="text" id="signup-region" placeholder="H2X" maxlength="3" style="text-transform:uppercase;font-family:'DM Mono',monospace;letter-spacing:0.1em"></div>
+      <button class="btn-primary" onclick="doSignup()">Créer mon compte</button>
+    </div>
+    <div class="auth-msg" id="auth-msg"></div>
+    <div class="auth-divider">ou continuer sans compte</div>
+    <button class="btn-ghost" onclick="doGuest()">Continuer en mode invité</button>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
+<div id="screen-app" class="screen" style="display:none;flex-direction:column;height:100%">
+
+  <!-- SEARCH TAB -->
+  <div id="screen-search" class="screen active" style="height:100%;overflow:hidden">
+    <div class="app-header">
+      <div class="app-header-title">panier.</div>
+      <div class="header-actions">
+        <span id="plan-badge" class="free-badge">GRATUIT</span>
+        <div class="icon-btn" onclick="showScreen('profile')">👤</div>
+      </div>
+    </div>
+    <div class="search-header">
+      <div class="search-wrap">
+        <span class="s-icon">🔍</span>
+        <input class="search-input" id="searchInput" type="search" placeholder="Rechercher un produit…" autocomplete="off" spellcheck="false">
+        <button class="s-clear" id="sClear" onclick="clearSearch()">✕</button>
+      </div>
+    </div>
+    <div class="cats-scroll" id="catFilter"></div>
+    <div class="results-scroll" id="searchResults"></div>
+  </div>
+
+  <!-- DASH TAB -->
+  <div id="screen-dash" class="screen">
+    <div class="app-header">
+      <div class="app-header-title">Tableau de bord</div>
+      <div class="icon-btn" onclick="showScreen('profile')">👤</div>
+    </div>
+    <div class="dash-scroll" id="dashContent"></div>
+  </div>
+
+  <!-- SCAN TAB -->
+  <div id="screen-scan" class="screen">
+    <div class="cam-area">
+      <video id="cam-video" autoplay playsinline muted></video>
+      <div class="cam-overlay">
+        <div class="scan-frame">
+          <div class="scan-corner tl"></div>
+          <div class="scan-corner tr"></div>
+          <div class="scan-corner bl"></div>
+          <div class="scan-corner br"></div>
+          <div class="scan-line"></div>
+        </div>
+        <div class="cam-status" id="camStatus">Pointez vers votre reçu</div>
+      </div>
+    </div>
+    <div class="scan-controls">
+      <button class="scan-close" onclick="closeScan()">✕</button>
+      <button class="scan-capture" onclick="capturePhoto()"><div class="scan-capture-inner"></div></button>
+      <button class="scan-upload" onclick="document.getElementById('file-input').click()">📁</button>
+      <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
+    </div>
+  </div>
+
+  <!-- VALIDATE TAB -->
+  <div id="screen-validate" class="screen">
+    <div class="val-header">
+      <button class="icon-btn" onclick="showScreen('search')" style="width:32px;height:32px;font-size:18px">←</button>
+      <div class="val-title">Valider le reçu</div>
+      <div class="val-store-badge" id="val-store-badge">Magasin</div>
+    </div>
+    <div id="val-body" style="flex:1;display:flex;flex-direction:column;overflow:hidden"></div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div id="screen-profile" class="screen">
+    <div class="app-header">
+      <button class="icon-btn" onclick="goBack()" style="width:32px;height:32px;font-size:18px">←</button>
+      <div class="app-header-title">Mon profil</div>
+      <div style="width:32px"></div>
+    </div>
+    <div class="profile-scroll" id="profileContent"></div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="nav" id="main-nav">
+    <button class="nav-btn active" id="nav-search" onclick="switchTab('search')">
+      <span class="nav-icon">🔍</span>
+      <span class="nav-label">Recherche</span>
+    </button>
+    <button class="nav-btn" id="nav-dash" onclick="switchTab('dash')">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Tableau</span>
+    </button>
+    <button class="nav-btn scan-btn" onclick="openScan()">
+      <span class="nav-icon">📷</span>
+    </button>
+    <button class="nav-btn" id="nav-community" onclick="showCommunity()">
+      <span class="nav-icon">🇶🇨</span>
+      <span class="nav-label">Communauté</span>
+    </button>
+    <button class="nav-btn" id="nav-profile" onclick="showScreen('profile')">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">Profil</span>
+    </button>
+  </nav>
+</div>
+
+<!-- PAYWALL MODAL -->
+<div class="modal-bg" id="paywall-modal">
+  <div class="modal">
+    <div class="modal-title">Passer à Panier Pro ✦</div>
+    <div class="modal-sub">Accédez à l'historique complet, aux alertes de prix et aux données communautaires.</div>
+    <div class="pw-features">
+      <div class="pw-feat">IPC personnel — votre inflation réelle</div>
+      <div class="pw-feat">Alertes prix plancher &amp; dépassement</div>
+      <div class="pw-feat">Détection shrinkflation automatique</div>
+      <div class="pw-feat">Historique illimité par produit</div>
+      <div class="pw-feat">Données communautaires complètes</div>
+      <div class="pw-feat">Export CSV de votre historique</div>
+    </div>
+    <div class="pw-price-row">
+      <span class="pw-price">3$</span>
+      <span class="pw-per">/ mois · annulez en tout temps</span>
+    </div>
+    <button class="btn-upgrade" onclick="simulateUpgrade()">Commencer l'essai gratuit 30 jours</button>
+    <div class="pw-legal">Puis 3,49$ CAD/mois. Annulation sans frais.</div>
+    <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closePaywall()">Non merci</button>
+  </div>
+</div>
+
+<!-- REGION MODAL -->
+<div class="modal-bg" id="region-modal">
+  <div class="modal">
+    <div class="modal-title">Ma région</div>
+    <div class="modal-sub">Les 3 premiers caractères de votre code postal servent à filtrer les données communautaires par région.</div>
+    <div class="region-code-display" id="region-display">---</div>
+    <div class="region-hint">Ex: H2X pour le Plateau-Mont-Royal, G1V pour Sainte-Foy</div>
+    <div class="field">
+      <label>Code postal (3 premiers caractères)</label>
+      <input class="region-input" id="region-input-field" type="text" maxlength="3" placeholder="H2X" oninput="updateRegionDisplay(this.value)">
+    </div>
+    <button class="btn-primary" onclick="saveRegion()">Enregistrer</button>
+    <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closeRegionModal()">Annuler</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+
+// ══════════════════════════════════════════
+// MODULE 5 — Supabase Backend
+// ══════════════════════════════════════════
+const SB_URL  = 'https://ovrvotvxvhlokodawajy.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im92cnZvdHZ4dmhsb2tvZGF3YWp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMDAyMzAsImV4cCI6MjA5Mjc3NjIzMH0.mCBEiVyWnuw7znQQU1WFIOca5USbn5F1jYZhEXxGz2s';
+let SB_TOKEN  = SB_ANON; // remplacé par le JWT user après login
+let SB_USER_ID = null;
+
+/** Requête générique vers l'API REST Supabase */
+async function sbFetch(path, opts = {}) {
+  const res = await fetch(`${SB_URL}${path}`, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SB_ANON,
+      'Authorization': `Bearer ${SB_TOKEN}`,
+      'Prefer': opts.prefer || 'return=representation',
+      ...(opts.headers || {})
+    }
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `HTTP ${res.status}`);
+  }
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : null;
+}
+
+/** Auth Supabase — signup */
+async function sbSignUp(email, password, meta = {}) {
+  const res = await fetch(`${SB_URL}/auth/v1/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+    body: JSON.stringify({ email, password, data: meta })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || 'Erreur inscription');
+  return data;
+}
+
+/** Auth Supabase — login */
+async function sbSignIn(email, password) {
+  const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || 'Courriel ou mot de passe incorrect.');
+  return data;
+}
+
+/** Auth Supabase — logout */
+async function sbSignOut() {
+  await fetch(`${SB_URL}/auth/v1/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON, 'Authorization': `Bearer ${SB_TOKEN}` }
+  }).catch(() => {});
+  SB_TOKEN = SB_ANON; SB_USER_ID = null;
+}
+
+/** Charger le profil utilisateur depuis la table profiles */
+async function sbLoadProfile(userId) {
+  try {
+    const rows = await sbFetch(`/rest/v1/profiles?id=eq.${userId}&select=*`);
+    return rows && rows[0] ? rows[0] : null;
+  } catch { return null; }
+}
+
+/** Upsert le profil (nom, région, plan) */
+async function sbUpsertProfile(data) {
+  if (!SB_USER_ID) return;
+  try {
+    await sbFetch(`/rest/v1/profiles`, {
+      method: 'POST',
+      prefer: 'return=minimal,resolution=merge-duplicates',
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify({ id: SB_USER_ID, ...data, updated_at: new Date().toISOString() })
+    });
+  } catch(e) { console.warn('sbUpsertProfile', e.message); }
+}
+
+/** Charger les transactions de l'utilisateur et reconstruire DB */
+async function sbLoadTransactions() {
+  if (!SB_USER_ID) return;
+  try {
+    // On récupère max 2000 transactions, triées par date
+    const rows = await sbFetch(
+      `/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=*&order=date.asc&limit=2000`
+    );
+    if (!rows || !rows.length) return;
+    // Reconstruire DB depuis les transactions
+    DB = {};
+    rows.forEach(tx => ingestTransaction(tx));
+  } catch(e) { console.warn('sbLoadTransactions', e.message); }
+}
+
+/** Ingère une transaction dans le cache DB local (même logique que confirmReceipt) */
+function ingestTransaction(tx) {
+  const { product_name: name, category, unit, price, weight_g, store, date: d, region } = tx;
+  if (!name || !price) return;
+  const p100g = weight_g ? parseFloat(((price / weight_g) * 100).toFixed(4)) : null;
+  const histEntry = { d, m: store, p: price, region: region || null };
+  if (weight_g) histEntry.g = weight_g;
+  if (p100g) histEntry.p100g = p100g;
+
+  if (!DB[name]) {
+    DB[name] = {
+      cat: category, unite: unit,
+      dernier_prix: price, dernier_magasin: store, dernier_date: d,
+      min: price, max: price, moy: price, n: 1,
+      trend: 'stable', trend_pct: 0,
+      magasins: { [store]: { moy: price, min: price, max: price, n: 1 } },
+      historique: [histEntry]
+    };
+  } else {
+    const prod = DB[name];
+    prod.historique.push(histEntry);
+    prod.n++; prod.dernier_prix = price; prod.dernier_magasin = store; prod.dernier_date = d;
+    prod.min = Math.min(prod.min, price); prod.max = Math.max(prod.max, price);
+    const prices = prod.historique.map(h => h.p);
+    prod.moy = parseFloat((prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2));
+    if (prices.length >= 4) {
+      const f = prices.slice(0, 2).reduce((a, b) => a + b) / 2;
+      const l = prices.slice(-2).reduce((a, b) => a + b) / 2;
+      const pct = (l - f) / f * 100;
+      prod.trend = pct > 5 ? 'up' : pct < -5 ? 'down' : 'stable';
+      prod.trend_pct = parseFloat(pct.toFixed(1));
+    }
+    if (!prod.magasins[store]) prod.magasins[store] = { moy: price, min: price, max: price, n: 1 };
+    else {
+      const ms = prod.magasins[store];
+      ms.n++; ms.min = Math.min(ms.min, price); ms.max = Math.max(ms.max, price);
+      const storeH = prod.historique.filter(h => h.m === store);
+      ms.moy = parseFloat((storeH.reduce((a, h) => a + h.p, 0) / storeH.length).toFixed(2));
+    }
+  }
+}
+
+/** Sauvegarder une liste d'items (après validation de reçu) dans Supabase */
+async function sbSaveTransactions(items, store, date) {
+  if (!SB_USER_ID) return; // mode invité: pas de sauvegarde distante
+  const rows = items.map(item => ({
+    user_id: SB_USER_ID,
+    product_name: item.name,
+    category: item.category,
+    unit: item.unit,
+    price: item.unitPrice,
+    weight_g: item.weight_g || null,
+    price_per_100g: item.p100g || null,
+    store,
+    date,
+    region: userRegion || null,
+    is_shared: communityShareEnabled  // opt-in communautaire
+  }));
+  try {
+    await sbFetch('/rest/v1/transactions', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify(rows)
+    });
+  } catch(e) {
+    console.warn('sbSaveTransactions:', e.message);
+    showToast('Sauvegarde cloud partielle — données locales OK', '');
+  }
+}
+
+/** Données communautaires: prix médians publics par région */
+async function sbCommunityPrices(productName, region) {
+  try {
+    let url = `/rest/v1/transactions?product_name=eq.${encodeURIComponent(productName)}&is_shared=eq.true&select=price,store,date,region&order=date.desc&limit=50`;
+    if (region) url += `&region=eq.${region}`;
+    return await sbFetch(url, { prefer: 'return=representation' });
+  } catch { return []; }
+}
+
+const CAT_ICONS={'Fruits & légumes':'🥦','Laitiers & œufs':'🥛','Épicerie':'🥫','Viandes & poissons':'🥩','Boulangerie':'🍞','Surgelés':'❄️','Nourriture chien':'🐶','Nettoyage & maison':'🧹','Santé & pharmacie':'💊','Chocolat & confiseries':'🍫','Alcool & boissons':'🍷','Autre':'📦'};
+const CAT_BG={'Fruits & légumes':'rgba(34,197,94,0.12)','Laitiers & œufs':'rgba(96,165,250,0.12)','Épicerie':'rgba(245,158,11,0.12)','Viandes & poissons':'rgba(239,68,68,0.12)','Boulangerie':'rgba(251,146,60,0.12)','Surgelés':'rgba(129,140,248,0.12)'};
+
+let DB={}, activeCard=null, activeCat='Tous', searchQ='', currentUser=null, isPro=false, prevScreen='search', camStream=null;
+let userRegion = '';
+
+// ══════════════════════════════════════════
+// MODULE 1 — IPC Personnel
+// ══════════════════════════════════════════
+
+/**
+ * Calcule l'IPC personnel basé sur le panier des produits les plus achetés.
+ * Base 100 = prix au premier achat de chaque produit.
+ * Retourne { current, trend, monthlyData }
+ */
+function computeIPC() {
+  // Sélection du panier: produits avec ≥3 achats, triés par fréquence
+  const basket = Object.entries(DB)
+    .filter(([, d]) => d.n >= 3 && d.historique && d.historique.length >= 3)
+    .sort((a, b) => b[1].n - a[1].n)
+    .slice(0, 20);
+
+  if (basket.length === 0) return null;
+
+  // Construire une timeline mensuelle
+  // Pour chaque mois, calculer l'indice moyen du panier
+  const allDates = basket.flatMap(([, d]) => d.historique.map(h => h.d));
+  const minDate = allDates.reduce((a, b) => a < b ? a : b);
+  const maxDate = allDates.reduce((a, b) => a > b ? a : b);
+
+  // Générer les mois entre min et max
+  const months = [];
+  let cur = new Date(minDate.slice(0, 7) + '-01');
+  const end = new Date(maxDate.slice(0, 7) + '-01');
+  while (cur <= end) {
+    months.push(cur.toISOString().slice(0, 7));
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+
+  // Pour chaque produit du panier, prix de base = premier prix historique
+  const basketWithBase = basket.map(([name, d]) => {
+    const sorted = [...d.historique].sort((a, b) => a.d.localeCompare(b.d));
+    return { name, historique: sorted, basePrice: sorted[0].p };
+  });
+
+  // Pour chaque mois, calculer l'indice moyen du panier
+  const monthlyData = months.map(month => {
+    let totalIndex = 0, count = 0;
+    basketWithBase.forEach(({ historique, basePrice }) => {
+      // Prix le plus récent disponible pour ce mois
+      const inOrBefore = historique.filter(h => h.d.slice(0, 7) <= month);
+      if (inOrBefore.length > 0) {
+        const latestPrice = inOrBefore[inOrBefore.length - 1].p;
+        totalIndex += (latestPrice / basePrice) * 100;
+        count++;
+      }
+    });
+    return { month, index: count > 0 ? totalIndex / count : null };
+  });
+
+  const valid = monthlyData.filter(m => m.index !== null);
+  if (valid.length < 2) return null;
+
+  const first = valid[0].index;
+  const last = valid[valid.length - 1].index;
+  const inflationPct = ((last - 100) / 100 * 100).toFixed(1);
+
+  return {
+    current: last.toFixed(1),
+    inflationPct,
+    basketSize: basket.length,
+    monthlyData: valid,
+    trend: last > first ? 'up' : last < first ? 'down' : 'flat'
+  };
+}
+
+function renderIPCChart(ipc) {
+  if (!ipc) return '';
+  const data = ipc.monthlyData;
+  const values = data.map(d => d.index);
+  const minV = Math.min(...values) - 2;
+  const maxV = Math.max(...values) + 2;
+  const W = 300, H = 80;
+
+  const pts = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((d.index - minV) / (maxV - minV)) * H;
+    return `${x},${y}`;
+  });
+
+  const color = ipc.trend === 'up' ? 'var(--red)' : ipc.trend === 'down' ? 'var(--green)' : 'var(--text2)';
+  const fillColor = ipc.trend === 'up' ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)';
+
+  // Polyline path for fill
+  const fillPath = `M${pts[0]} L${pts.join(' L')} L${W},${H} L0,${H} Z`;
+
+  const last6 = data.slice(-6);
+  const labelStep = Math.max(1, Math.floor(last6.length / 4));
+  const labelMonths = last6.filter((_, i) => i % labelStep === 0 || i === last6.length - 1)
+    .map(d => d.month.slice(5)); // MM
+
+  const pct = parseFloat(ipc.inflationPct);
+  const pctClass = pct > 0 ? 'up' : pct < 0 ? 'dn' : 'flat';
+  const pctStr = pct > 0 ? `+${pct}%` : `${pct}%`;
+
+  return `
+  <div class="ipc-chart-wrap">
+    <div class="ipc-chart-card">
+      <div class="ipc-chart-header">
+        <div>
+          <div class="ipc-chart-title">IPC Personnel</div>
+          <div class="ipc-chart-sub">Panier de ${ipc.basketSize} produits</div>
+        </div>
+        <div class="ipc-chart-val">
+          <div class="ipc-chart-pct ${pctClass}">${pctStr}</div>
+          <div class="ipc-chart-base">depuis 1er achat</div>
+        </div>
+      </div>
+      <svg class="ipc-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:80px">
+        <defs>
+          <linearGradient id="ipcGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${fillPath}" fill="url(#ipcGrad)"/>
+        <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${pts[pts.length-1].split(',')[0]}" cy="${pts[pts.length-1].split(',')[1]}" r="3" fill="${color}"/>
+      </svg>
+      <div class="ipc-months">
+        ${data.filter((_, i) => {
+          const step = Math.max(1, Math.floor(data.length / 5));
+          return i % step === 0 || i === data.length - 1;
+        }).map(d => `<span class="ipc-month-label">${d.month.slice(2)}</span>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════
+// MODULE 2 — Prix normalisé 100g/100ml
+// ══════════════════════════════════════════
+
+/**
+ * Extrait le poids/volume d'une chaîne et retourne le prix pour 100g/100ml.
+ * Ex: "2.49 / 454g" → 0.549/100g
+ */
+function extractWeight(unitStr) {
+  if (!unitStr) return null;
+  // Try patterns: 123g, 1.5kg, 500ml, 1L, 750ml
+  const patterns = [
+    { re: /(\d+\.?\d*)\s*kg/i, mul: 1000 },
+    { re: /(\d+\.?\d*)\s*g\b/i, mul: 1 },
+    { re: /(\d+\.?\d*)\s*l\b/i, mul: 1000 },
+    { re: /(\d+\.?\d*)\s*ml/i, mul: 1 },
+  ];
+  for (const { re, mul } of patterns) {
+    const m = unitStr.match(re);
+    if (m) return parseFloat(m[1]) * mul; // retourne en grammes ou ml
+  }
+  return null;
+}
+
+function computePrice100g(price, unitStr) {
+  const grams = extractWeight(unitStr);
+  if (!grams || grams <= 0) return null;
+  return (price / grams) * 100;
+}
+
+function formatPrice100g(price100g) {
+  if (price100g === null) return null;
+  return `${price100g.toFixed(2)}$/100g`;
+}
+
+// ══════════════════════════════════════════
+// MODULE 3 — Alertes intelligentes
+// ══════════════════════════════════════════
+
+const ALERT_THRESHOLD_HIGH = 1.15; // +15% au-dessus de la médiane
+const ALERT_SHRINK_MIN_ENTRIES = 3; // Minimum d'entrées pour détecter shrinkflation
+
+function getAlertBadges(p) {
+  const badges = [];
+
+  // Badge prix élevé: prix actuel > médiane × 1.15
+  if (p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH) {
+    const overPct = Math.round((p.dernier_prix / p.moy - 1) * 100);
+    badges.push({ type: 'overpriced', label: `🔴 +${overPct}% vs médiane` });
+  }
+
+  // Badge prix plancher: prix actuel ≤ minimum historique
+  if (p.dernier_prix <= p.min + 0.01) {
+    badges.push({ type: 'floor', label: '🟢 Prix plancher' });
+  }
+
+  // Badge shrinkflation: détecter via historique (même prix, format réduit)
+  const shrinkAlert = detectShrinkflation(p);
+  if (shrinkAlert) {
+    badges.push({ type: 'shrink', label: `⚠ Format réduit de ${shrinkAlert.pct}%` });
+  }
+
+  return badges;
+}
+
+// ══════════════════════════════════════════
+// MODULE 4 — Détection shrinkflation
+// ══════════════════════════════════════════
+
+function detectShrinkflation(p) {
+  if (!p.historique || p.historique.length < ALERT_SHRINK_MIN_ENTRIES) return null;
+  // Chercher dans le nom ou l'unité des changements de format
+  // Logique: si l'unité contient un poids ET qu'on a plusieurs entrées avec des poids différents
+  // Pour la démo, on simule via les champs historique qui pourraient avoir un champ 'g' (grammage)
+  const hist = p.historique.filter(h => h.g && h.g > 0);
+  if (hist.length < 2) return null;
+
+  const sorted = [...hist].sort((a, b) => a.d.localeCompare(b.d));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  if (last.g < first.g && Math.abs(last.p - first.p) / first.p < 0.05) {
+    const reducPct = Math.round((1 - last.g / first.g) * 100);
+    if (reducPct >= 5) return { pct: reducPct };
+  }
+  return null;
+}
+
+function renderBadges(badges) {
+  if (!badges || !badges.length) return '';
+  return '<div class="pcard-badges">' + badges.map(b => {
+    const cls = b.type === 'overpriced' ? 'badge-overpriced' : b.type === 'floor' ? 'badge-floor' : 'badge-shrink';
+    return `<span class="alert-badge ${cls}">${b.label}</span>`;
+  }).join('') + '</div>';
+}
+
+// ══════════════════════════════════════════
+// DATABASE
+// ══════════════════════════════════════════
+
+async function initDB() {
+  // 1. Charger le catalogue de base (prix_db.json) comme seed public
+  try {
+    const r = await fetch('prix_db.json');
+    DB = await r.json();
+  } catch(e) { DB = {}; }
+
+  // 2. Si connecté Supabase, fusionner les transactions perso par-dessus
+  if (SB_USER_ID) {
+    showSyncIndicator(true);
+    await sbLoadTransactions();
+    showSyncIndicator(false);
+  }
+
+  renderCats();
+  renderSearch();
+  renderDash();
+}
+
+function showSyncIndicator(on) {
+  let el = document.getElementById('sync-dot');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'sync-dot';
+    el.style.cssText = 'position:fixed;top:12px;right:60px;width:8px;height:8px;border-radius:50%;background:var(--accent2);z-index:9999;opacity:0;transition:opacity .3s;box-shadow:0 0 6px var(--accent2)';
+    document.body.appendChild(el);
+  }
+  el.style.opacity = on ? '1' : '0';
+}
+
+function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' '); }
+function matchScore(name, q) {
+  const n = norm(name), qn = norm(q);
+  if (n.startsWith(qn)) return 3;
+  if (n.includes(qn)) return 2;
+  return q.split(' ').filter(Boolean).every(w => n.includes(norm(w))) ? 1 : 0;
+}
+
+function renderCats() {
+  const cats = ['Tous', ...new Set(Object.values(DB).map(d => d.cat).filter(Boolean).sort())];
+  const el = document.getElementById('catFilter');
+  el.innerHTML = cats.map(c => `<button class="cat-chip${c === activeCat ? ' active' : ''}" onclick="setCat('${c}')">${CAT_ICONS[c] || ''} ${c}</button>`).join('');
+}
+function setCat(c) { activeCat = c; renderCats(); renderSearch(); }
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  searchQ = '';
+  document.getElementById('sClear').classList.remove('show');
+  activeCard = null;
+  renderSearch();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('searchInput').addEventListener('input', e => {
+    searchQ = e.target.value.toLowerCase().trim();
+    document.getElementById('sClear').classList.toggle('show', searchQ.length > 0);
+    activeCard = null;
+    renderSearch();
+  });
+
+  // Tenter de restaurer une session Supabase existante
+  const restored = await tryRestoreSession();
+  if (restored) {
+    // Session restaurée → aller directement dans l'app
+    document.getElementById('screen-auth').classList.remove('active');
+    document.getElementById('screen-auth').style.display = 'none';
+    document.getElementById('screen-app').style.display = 'flex';
+    document.getElementById('plan-badge').textContent = isPro ? 'PRO' : 'GRATUIT';
+    document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
+    renderProfile();
+    switchTab('search');
+  }
+
+  initDB();
+});
+
+function renderSearch() {
+  let prods = Object.entries(DB).map(([name, d]) => ({ name, ...d }));
+  if (activeCat !== 'Tous') prods = prods.filter(p => p.cat === activeCat);
+  if (searchQ) {
+    prods = prods.map(p => ({ ...p, _s: matchScore(p.name, searchQ) })).filter(p => p._s > 0).sort((a, b) => b._s - a._s || b.n - a.n);
+  } else {
+    prods = prods.sort((a, b) => b.n - a.n);
+  }
+  const el = document.getElementById('searchResults');
+  if (!prods.length) {
+    const emptyMsg = searchQ ? 'Aucun résultat pour «' + searchQ + '»' : 'Scannez votre premier reçu pour commencer';
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🛒</div><div class="empty-text">' + emptyMsg + '</div></div>';
+    return;
+  }
+  el.innerHTML = prods.map(p => renderPCard(p)).join('');
+  el.querySelectorAll('.pcard').forEach(card => {
+    card.addEventListener('click', () => {
+      const n = card.dataset.name;
+      activeCard = (activeCard === n) ? null : n;
+      renderSearch();
+      if (activeCard) setTimeout(() => { const c = document.querySelector('.pcard.open'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 40);
+    });
+  });
+}
+
+function renderPCard(p) {
+  const icon = CAT_ICONS[p.cat] || '📦', bg = CAT_BG[p.cat] || 'rgba(75,85,99,0.15)';
+  const arr = p.trend === 'up' ? '↑' : p.trend === 'down' ? '↓' : '→';
+  const tc = p.trend === 'up' ? 'trend-up' : p.trend === 'down' ? 'trend-dn' : 'trend-st';
+  const tl = p.trend === 'up' ? `+${p.trend_pct}%` : p.trend === 'down' ? `${p.trend_pct}%` : 'stable';
+  const open = activeCard === p.name;
+
+  // Module 2: prix/100g
+  const price100g = computePrice100g(p.dernier_prix, p.unite);
+  const price100gStr = formatPrice100g(price100g);
+
+  // Module 3: alertes
+  const badges = getAlertBadges(p);
+
+  let detail = '';
+  if (open) {
+    const showFull = isPro || p.n <= 3;
+    detail += `<div class="pcard-detail">`;
+    detail += `<div class="stat-row">
+      <div class="stat"><div class="stat-l">Min</div><div class="stat-v" style="color:var(--green)">$${p.min.toFixed(2)}</div></div>
+      <div class="stat"><div class="stat-l">Médiane</div><div class="stat-v">$${p.moy.toFixed(2)}</div></div>
+      <div class="stat"><div class="stat-l">Max</div><div class="stat-v" style="color:var(--red)">$${p.max.toFixed(2)}</div></div>
+    </div>`;
+
+    // Prix/100g dans les stats si disponible
+    if (price100g) {
+      detail += `<div style="margin-bottom:10px;padding:8px;background:var(--bg3);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:var(--text3)">Prix normalisé</span>
+        <span style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text2)">${price100gStr}</span>
+      </div>`;
+    }
+
+    if (p.magasins && Object.keys(p.magasins).length) {
+      const stores = Object.entries(p.magasins).sort((a, b) => a[1].moy - b[1].moy);
+      const mx = Math.max(...stores.map(s => s[1].moy));
+      detail += `<div class="sec-title">Par magasin</div><div class="store-rows">`;
+      stores.forEach(([s, i]) => {
+        detail += `<div class="store-r"><span class="store-n">${s}</span><div class="bar-wrap"><div class="bar-fill" style="width:${Math.round(i.moy / mx * 100)}%"></div></div><span class="store-p">$${i.moy.toFixed(2)}</span><span class="store-c">${i.n}x</span></div>`;
+      });
+      detail += `</div>`;
+    }
+
+    if (p.historique && p.historique.length) {
+      const hist = showFull ? [...p.historique].reverse() : [...p.historique].reverse().slice(0, 3);
+      detail += `<div class="sec-title">Historique${!showFull ? ' (3 derniers)' : ''}</div>`;
+      detail += `<div class="${showFull ? 'hist-rows' : 'hist-rows locked-overlay'}">`;
+      hist.forEach((h, idx) => {
+        // Module 4: détecter shrinkflation dans l'historique
+        const shrinkFlag = h.g && idx > 0 ? '⚠️' : '';
+        const p100g = h.g ? computePrice100g(h.p, `${h.g}g`) : null;
+        const p100gDisplay = p100g ? `<span class="hist-100g">${p100g.toFixed(2)}$/100g</span>` : '';
+        detail += `<div class="hist-r"><span class="hist-d">${h.d}</span><span class="hist-s">${h.m}${shrinkFlag}</span><span class="hist-p">$${h.p.toFixed(2)}${p100gDisplay}</span></div>`;
+      });
+      detail += `</div>`;
+      if (!showFull) detail += `<div class="unlock-cta" onclick="openPaywall()"><span class="unlock-text">✦ Voir l'historique complet</span><span class="unlock-price">3$/mois</span></div>`;
+    }
+    detail += `</div>`;
+  }
+
+  const nameEsc = p.name.replace(/"/g, '&quot;');
+  return `<div class="pcard${open ? ' open' : ''}" data-name="${nameEsc}">
+    <div class="pcard-top">
+      <div class="pcard-icon" style="background:${bg}">${icon}</div>
+      <div class="pcard-info">
+        <div class="pcard-name">${p.name}</div>
+        <div class="pcard-sub">${p.cat || ''} · ${p.unite || ''} · ${p.n} achat${p.n > 1 ? 's' : ''}</div>
+        ${renderBadges(badges)}
+      </div>
+      <div class="pcard-right">
+        <div class="pcard-price">$${p.dernier_prix.toFixed(2)}</div>
+        ${price100gStr ? '<div class="pcard-price100">' + price100gStr + '</div>' : ''}
+        <div class="pcard-store">${p.dernier_magasin}</div>
+        <span class="trend ${tc}">${arr} ${tl}</span>
+      </div>
+    </div>${detail}</div>`;
+}
+
+// ══════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════
+
+function buildAlertsSection() {
+  const allProds = Object.entries(DB).map(([name, d]) => ({ name, ...d }));
+
+  const overpriced = allProds
+    .filter(p => p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH)
+    .sort((a, b) => (b.dernier_prix / b.moy) - (a.dernier_prix / a.moy))
+    .slice(0, 5);
+
+  const floorPriced = allProds
+    .filter(p => p.dernier_prix <= p.min + 0.01 && p.n >= 3)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 3);
+
+  const shrinkItems = allProds.filter(p => detectShrinkflation(p)).slice(0, 3);
+
+  if (!overpriced.length && !floorPriced.length && !shrinkItems.length) return '';
+
+  let html = `<div class="dash-section"><div class="dash-section-title">Alertes actives</div></div><div class="alerts-panel">`;
+
+  overpriced.forEach(p => {
+    const overPct = Math.round((p.dernier_prix / p.moy - 1) * 100);
+    html += `<div class="alert-item"><div class="alert-dot-red"></div><div class="alert-info"><div class="alert-name">${p.name}</div><div class="alert-msg">+${overPct}% au-dessus de la médiane · ${p.dernier_magasin}</div></div><div class="alert-price" style="color:var(--red)">$${p.dernier_prix.toFixed(2)}</div></div>`;
+  });
+
+  floorPriced.forEach(p => {
+    html += `<div class="alert-item"><div class="alert-dot-green"></div><div class="alert-info"><div class="alert-name">${p.name}</div><div class="alert-msg">Prix plancher historique · ${p.dernier_magasin}</div></div><div class="alert-price" style="color:var(--green)">$${p.dernier_prix.toFixed(2)}</div></div>`;
+  });
+
+  shrinkItems.forEach(p => {
+    const sh = detectShrinkflation(p);
+    html += `<div class="alert-item"><div class="alert-dot-amber"></div><div class="alert-info"><div class="alert-name">${p.name}</div><div class="alert-msg">Format réduit de ${sh.pct}% — même prix</div></div><div class="alert-price" style="color:var(--amber)">⚠</div></div>`;
+  });
+
+  html += `</div>`;
+  return html;
+}
+
+function renderDash() {
+  const prods = Object.values(DB);
+  const upItems = prods.filter(p => p.trend === 'up').length;
+  const dnItems = prods.filter(p => p.trend === 'down').length;
+  const recents = Object.entries(DB).sort((a, b) => (b[1].dernier_date || '').localeCompare(a[1].dernier_date || '')).slice(0, 8);
+
+  // IPC
+  const ipc = computeIPC();
+  const ipcPct = ipc ? parseFloat(ipc.inflationPct) : null;
+  const ipcPctStr = ipcPct !== null ? (ipcPct >= 0 ? `+${ipcPct}%` : `${ipcPct}%`) : '—';
+  const ipcPctClass = ipcPct > 0 ? 'kpi-up' : ipcPct < 0 ? 'kpi-dn' : '';
+
+  const el = document.getElementById('dashContent');
+  const recentRows = recents.map(([rname, d]) => {
+    const icon = CAT_ICONS[d.cat] || '📦';
+    return '<div class="recent-item"><div class="r-icon">' + icon + '</div><div class="r-info"><div class="r-name">' + rname + '</div><div class="r-sub">' + d.dernier_magasin + ' · ' + (d.dernier_date || '') + '</div></div><div class="r-price">$' + (d.dernier_prix || 0).toFixed(2) + '</div></div>';
+  }).join('');
+  const paywallBlock = !isPro ? '<div style="padding:0 16px 16px"><div class="paywall-banner"><div class="pw-title">Passer à Pro ✦</div><div class="pw-sub">IPC complet, alertes intelligentes, détection shrinkflation et données communautaires québécoises.</div><div class="pw-features"><div class="pw-feat">Votre inflation personnelle en temps réel</div><div class="pw-feat">Alertes prix plancher &amp; dépassement</div><div class="pw-feat">Détection shrinkflation automatique</div></div><div class="pw-price-row"><span class="pw-price">3$</span><span class="pw-per">/ mois</span></div><button class="btn-upgrade" onclick="openPaywall()">Essai gratuit 30 jours</button></div></div>' : '';
+  el.innerHTML = `
+  <div class="dash-section">
+    <div class="dash-section-title">Résumé</div>
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Produits suivis</div><div class="kpi-val">${prods.length}</div><div class="kpi-sub">dans votre historique</div></div>
+      <div class="kpi"><div class="kpi-label">En hausse</div><div class="kpi-val kpi-up">${upItems}</div><div class="kpi-sub kpi-dn">${dnItems} en baisse</div></div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi kpi-ipc"><div class="kpi-label">Mon inflation réelle</div><div class="kpi-val ${ipcPctClass}">${ipcPctStr}</div><div class="kpi-sub">depuis 1er achat · IPC personnel</div></div>
+      <div class="kpi"><div class="kpi-label">Alertes actives</div><div class="kpi-val" style="color:var(--amber)">${countAlerts()}</div><div class="kpi-sub">prix élevés détectés</div></div>
+    </div>
+  </div>
+  ${ipc ? renderIPCChart(ipc) : ''}
+  ${buildAlertsSection()}
+  ${paywallBlock}
+  <div class="dash-section">
+    <div class="dash-section-title">Derniers prix consultés</div>
+    <div class="recent-list">
+      ${recentRows}
+    </div>
+  </div>`;
+}
+
+function countAlerts() {
+  return Object.values(DB).filter(p => p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH).length;
+}
+
+// ══════════════════════════════════════════
+// MODULE 6 — Région (code postal)
+// ══════════════════════════════════════════
+
+function updateRegionDisplay(val) {
+  const clean = val.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+  document.getElementById('region-display').textContent = clean || '---';
+}
+
+function openRegionModal() {
+  const modal = document.getElementById('region-modal');
+  modal.classList.add('open');
+  const input = document.getElementById('region-input-field');
+  input.value = userRegion || '';
+  document.getElementById('region-display').textContent = userRegion || '---';
+}
+
+function closeRegionModal() {
+  document.getElementById('region-modal').classList.remove('open');
+}
+
+function saveRegion() {
+  const val = document.getElementById('region-input-field').value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+  if (!val || val.length < 2) { showToast('Code postal invalide', 'error'); return; }
+  userRegion = val;
+  closeRegionModal();
+  renderProfile();
+  showToast(`Région enregistrée: ${val} ✓`, 'success');
+  // Sync Supabase
+  if (SB_USER_ID) sbUpsertProfile({ region: val });
+}
+
+// ══════════════════════════════════════════
+// PROFILE
+// ══════════════════════════════════════════
+
+function renderProfile() {
+  const el = document.getElementById('profileContent');
+  const name = currentUser ? currentUser.name : 'Invité';
+  const email = currentUser ? currentUser.email : 'Mode invité';
+  const initials = name.substring(0, 1).toUpperCase();
+  const region = userRegion || 'Non définie';
+
+  // Construire les blocs conditionnels comme variables — évite les backticks imbriqués
+  const proRow = !isPro
+    ? '<div class="menu-item" onclick="openPaywall()"><div class="menu-item-icon">✦</div><div class="menu-item-text"><div class="menu-item-title" style="color:var(--pro)">Passer à Pro</div><div class="menu-item-sub">3$/mois · essai 30 jours</div></div><div class="menu-item-arrow">›</div></div>'
+    : '';
+  const communityRow = SB_USER_ID
+    ? '<div class="menu-item" onclick="toggleCommunityShare()"><div class="menu-item-icon">🇶🇨</div><div class="menu-item-text"><div class="menu-item-title">Partage communautaire</div><div class="menu-item-sub" id="share-sub">Contribuer aux données publiques (opt-in)</div></div><div class="menu-item-arrow" id="share-toggle" style="font-size:20px;color:var(--text3)">○</div></div>'
+    : '';
+  const planLabel = isPro ? '✦ Panier Pro' : 'Plan gratuit';
+  const alertesSub = isPro ? 'Configurez vos alertes' : 'Pro requis';
+  const exportSub  = isPro ? 'CSV de votre historique' : 'Pro requis';
+
+  el.innerHTML = `
+  <div class="profile-hero">
+    <div class="avatar">${initials}</div>
+    <div class="profile-name">${name}</div>
+    <div class="profile-email">${email}</div>
+    <div class="profile-plan">${planLabel}</div>
+    <div class="profile-region">📍 Région: ${region}</div>
+  </div>
+  <div class="menu-section">
+    <div class="menu-label">Mon compte</div>
+    ${proRow}
+    <div class="menu-item" onclick="openRegionModal()"><div class="menu-item-icon">📍</div><div class="menu-item-text"><div class="menu-item-title">Ma région</div><div class="menu-item-sub">${region} — données communautaires locales</div></div><div class="menu-item-arrow">›</div></div>
+    ${communityRow}
+    <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
+  </div>
+  <div class="menu-section">
+    <div class="menu-label">Application</div>
+    <div class="menu-item" onclick="showToast('Panier v0.2.0 — Supabase + IPC + Alertes')"><div class="menu-item-icon">ℹ️</div><div class="menu-item-text"><div class="menu-item-title">À propos</div><div class="menu-item-sub">Panier v0.2.0 — modules avancés</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="showToast('Données privées par défaut. Opt-in communautaire disponible.')"><div class="menu-item-icon">🔒</div><div class="menu-item-text"><div class="menu-item-title">Confidentialité</div><div class="menu-item-sub">Données privées par défaut</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item danger" onclick="doLogout()"><div class="menu-item-icon">🚪</div><div class="menu-item-text"><div class="menu-item-title">Déconnexion</div></div><div class="menu-item-arrow">›</div></div>
+  </div>
+  <div style="height:20px"></div>`;
+}
+
+// ══════════════════════════════════════════
+// EXPORT CSV (Module 5 placeholder)
+// ══════════════════════════════════════════
+
+async function exportCSV() {
+  if (!isPro) { openPaywall(); return; }
+  let rows = [['Produit', 'Catégorie', 'Unité', 'Date', 'Magasin', 'Prix', 'Prix/100g', 'Poids(g)', 'Région']];
+
+  if (SB_USER_ID) {
+    // Exporter directement depuis Supabase pour avoir toutes les données
+    try {
+      showToast("Préparation de l'export…");
+      const txs = await sbFetch(`/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=*&order=date.desc&limit=5000`);
+      (txs || []).forEach(tx => {
+        rows.push([
+          tx.product_name, tx.category || '', tx.unit || '',
+          tx.date, tx.store,
+          (tx.price || 0).toFixed(2),
+          tx.price_per_100g ? tx.price_per_100g.toFixed(4) : '',
+          tx.weight_g || '',
+          tx.region || ''
+        ]);
+      });
+    } catch(e) {
+      // Fallback au cache local
+      Object.entries(DB).forEach(([name, d]) => {
+        (d.historique || []).forEach(h => {
+          rows.push([name, d.cat || '', d.unite || '', h.d, h.m, h.p.toFixed(2), h.p100g || '', h.g || '', h.region || '']);
+        });
+      });
+    }
+  } else {
+    Object.entries(DB).forEach(([name, d]) => {
+      (d.historique || []).forEach(h => {
+        rows.push([name, d.cat || '', d.unite || '', h.d, h.m, h.p.toFixed(2), h.p100g || '', h.g || '', h.region || '']);
+      });
+    });
+  }
+
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `panier_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  showToast(`Export CSV — ${rows.length - 1} transactions ✓`, 'success');
+}
+
+// ══════════════════════════════════════════
+// AUTH — Supabase
+// ══════════════════════════════════════════
+
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', ['login', 'signup'][i] === tab));
+  document.getElementById('auth-login').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('auth-signup').style.display = tab === 'signup' ? 'block' : 'none';
+  document.getElementById('auth-msg').textContent = '';
+}
+
+/** Restaurer session depuis localStorage (JWT Supabase) au démarrage */
+async function tryRestoreSession() {
+  const sess = JSON.parse(localStorage.getItem('panier_sb_session') || 'null');
+  if (!sess || !sess.access_token) return false;
+  // Vérifier si le token est encore valide (exp en secondes)
+  const payload = JSON.parse(atob(sess.access_token.split('.')[1]));
+  if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('panier_sb_session'); return false; }
+  SB_TOKEN = sess.access_token;
+  SB_USER_ID = sess.user.id;
+  const profile = await sbLoadProfile(SB_USER_ID);
+  currentUser = {
+    name: profile?.display_name || sess.user.email.split('@')[0],
+    email: sess.user.email
+  };
+  isPro = profile?.is_pro || false;
+  userRegion = profile?.region || '';
+  return true;
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  if (!email || !pass) { setAuthMsg('Veuillez remplir tous les champs.'); return; }
+  setAuthMsg('Connexion…');
+  try {
+    const data = await sbSignIn(email, pass);
+    SB_TOKEN = data.access_token;
+    SB_USER_ID = data.user.id;
+    localStorage.setItem('panier_sb_session', JSON.stringify(data));
+    const profile = await sbLoadProfile(SB_USER_ID);
+    currentUser = {
+      name: profile?.display_name || data.user.email.split('@')[0],
+      email: data.user.email
+    };
+    isPro = profile?.is_pro || false;
+    userRegion = profile?.region || '';
+    enterApp();
+  } catch(e) { setAuthMsg(e.message); }
+}
+
+async function doSignup() {
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const pass = document.getElementById('signup-pass').value;
+  const region = document.getElementById('signup-region').value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+  if (!name || !email || !pass) { setAuthMsg('Veuillez remplir tous les champs.'); return; }
+  if (pass.length < 8) { setAuthMsg('Mot de passe trop court (8 caractères minimum).'); return; }
+  setAuthMsg('Création du compte…');
+  try {
+    const data = await sbSignUp(email, pass, { display_name: name });
+    // Supabase peut exiger confirmation par courriel
+    if (data.session) {
+      SB_TOKEN = data.session.access_token;
+      SB_USER_ID = data.user.id;
+      localStorage.setItem('panier_sb_session', JSON.stringify(data.session));
+      // Créer le profil
+      await sbUpsertProfile({ display_name: name, region, is_pro: false });
+      currentUser = { name, email };
+      isPro = false;
+      userRegion = region;
+      enterApp();
+      showToast(`Bienvenue, ${name}! 🎉`, 'success');
+    } else {
+      // Email de confirmation envoyé
+      setAuthMsg('');
+      showToast('Vérifiez votre courriel pour confirmer votre compte ✉', 'success');
+    }
+  } catch(e) { setAuthMsg(e.message); }
+}
+
+function doGuest() {
+  currentUser = { name: 'Invité', email: '' };
+  SB_TOKEN = SB_ANON; SB_USER_ID = null;
+  isPro = false;
+  userRegion = '';
+  enterApp();
+}
+
+async function doLogout() {
+  await sbSignOut();
+  currentUser = null; isPro = false; userRegion = '';
+  localStorage.removeItem('panier_sb_session');
+  DB = {};
+  document.getElementById('screen-app').style.display = 'none';
+  document.getElementById('screen-auth').classList.add('active');
+  document.getElementById('screen-auth').style.display = 'flex';
+}
+
+function setAuthMsg(msg) { document.getElementById('auth-msg').textContent = msg; }
+
+function enterApp() {
+  document.getElementById('screen-auth').classList.remove('active');
+  document.getElementById('screen-auth').style.display = 'none';
+  document.getElementById('screen-app').style.display = 'flex';
+  document.getElementById('plan-badge').textContent = isPro ? 'PRO' : 'GRATUIT';
+  document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
+  renderProfile();
+  switchTab('search');
+}
+
+// ══════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════
+
+let currentTab = 'search';
+function switchTab(tab) {
+  currentTab = tab;
+  ['search', 'dash'].forEach(t => {
+    document.getElementById(`screen-${t}`).classList.toggle('active', t === tab);
+    const nb = document.getElementById(`nav-${t}`);
+    if (nb) nb.classList.toggle('active', t === tab);
+  });
+  document.getElementById('main-nav').style.display = 'flex';
+  ['scan', 'validate', 'profile'].forEach(s => { document.getElementById(`screen-${s}`).classList.remove('active'); });
+  if (tab === 'dash') renderDash();
+}
+
+function showScreen(s) {
+  prevScreen = currentTab;
+  ['search', 'dash', 'scan', 'validate', 'profile'].forEach(sc => {
+    document.getElementById(`screen-${sc}`).classList.toggle('active', sc === s);
+  });
+  document.getElementById('main-nav').style.display = s === 'scan' ? 'none' : 'flex';
+  if (s === 'profile') renderProfile();
+}
+
+function goBack() { switchTab(prevScreen || 'search'); }
+
+// ══════════════════════════════════════════
+// SCANNER
+// ══════════════════════════════════════════
+
+async function openScan() {
+  showScreen('scan');
+  document.getElementById('camStatus').textContent = 'Initialisation de la caméra…';
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    document.getElementById('cam-video').srcObject = camStream;
+    document.getElementById('camStatus').textContent = 'Pointez vers votre reçu';
+  } catch(e) {
+    document.getElementById('camStatus').textContent = 'Caméra non disponible — utilisez 📁 pour uploader une photo';
+  }
+}
+
+function closeScan() {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  switchTab(currentTab);
+}
+
+function capturePhoto() {
+  const video = document.getElementById('cam-video');
+  if (!video.srcObject) { showToast('Caméra non disponible', 'error'); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  closeScan();
+  processReceipt(b64);
+}
+
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { const b64 = ev.target.result.split(',')[1]; processReceipt(b64); };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+async function processReceipt(b64) {
+  showScreen('validate');
+  const body = document.getElementById('val-body');
+  body.innerHTML = `<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text">Claude analyse votre reçu…</div><div class="val-proc-sub">Identification des produits, prix et formats</div></div>`;
+
+  try {
+    const resp = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: `Analyse ce reçu d'épicerie du Québec. Extrais tous les produits achetés.
+
+Retourne UNIQUEMENT un objet JSON avec cette structure exacte, sans autre texte:
+{
+  "store": "nom du magasin en français",
+  "date": "YYYY-MM-DD ou null",
+  "items": [
+    {
+      "raw": "texte exact du reçu",
+      "name": "nom normalisé du produit en français",
+      "category": "une de: Fruits & légumes, Laitiers & œufs, Épicerie, Viandes & poissons, Boulangerie, Surgelés, Nettoyage & maison, Santé & pharmacie, Autre",
+      "qty": 1,
+      "unit": "unité avec poids si présent ex: 500g, 1L, 2kg",
+      "price": 0.00,
+      "weight_g": null,
+      "confidence": 0.95
+    }
+  ]
+}
+
+IMPORTANT: Pour le champ weight_g, extrais le poids en grammes si visible sur le reçu (ex: 454g → 454, 1kg → 1000, 500ml → 500). Sinon null.` }
+          ]
+        }]
+      })
+    });
+    const data = await resp.json();
+    const text = data.content.filter(c => c.type === 'text').map(c => c.text).join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    renderValidation(parsed);
+  } catch(e) {
+    renderValidationDemo();
+  }
+}
+
+function renderValidationDemo() {
+  const demo = {
+    store: 'Super C',
+    date: new Date().toISOString().slice(0, 10),
+    items: [
+      { raw: 'BANANE BIO', name: 'Banane bio', category: 'Fruits & légumes', qty: 1, unit: 'unité', price: 2.49, weight_g: null, confidence: 0.97 },
+      { raw: 'LAIT 3.25% 2L', name: 'Lait 3,25%', category: 'Laitiers & œufs', qty: 1, unit: '2L', price: 4.99, weight_g: 2000, confidence: 0.99 },
+      { raw: 'BLEUETS 340G', name: 'Bleuets', category: 'Fruits & légumes', qty: 1, unit: '340g', price: 3.99, weight_g: 340, confidence: 0.91 },
+      { raw: 'BEURRE SALÉ 454G', name: 'Beurre', category: 'Laitiers & œufs', qty: 1, unit: '454g', price: 5.88, weight_g: 454, confidence: 0.94 },
+      { raw: 'PÂTES SPAGHETTI 900G', name: 'Pâtes alimentaires', category: 'Épicerie', qty: 2, unit: '900g', price: 3.98, weight_g: 900, confidence: 0.88 },
+    ]
+  };
+  renderValidation(demo);
+  showToast('Mode démo — API key requise pour le vrai scanner', 'error');
+}
+
+function renderValidation(data) {
+  document.getElementById('val-store-badge').textContent = data.store || 'Magasin inconnu';
+  const body = document.getElementById('val-body');
+  let items = data.items || [];
+  body.innerHTML = `
+    <div class="val-scroll" style="flex:1;overflow-y:auto;padding:12px" id="val-items">
+      ${items.map((item, i) => renderValItem(item, i)).join('')}
+    </div>
+    <div class="val-footer">
+      <button class="btn-sec" onclick="switchTab('search')">Annuler</button>
+      <button class="btn-confirm" onclick="confirmReceipt()">
+        <span>✓</span> Confirmer ${items.length} item${items.length > 1 ? 's' : ''}
+      </button>
+    </div>`;
+  document.querySelectorAll('.val-item').forEach(el => {
+    el.querySelector('.val-item-top').addEventListener('click', () => {
+      el.querySelector('.val-edit').classList.toggle('open');
+    });
+  });
+}
+
+function renderValItem(item, i) {
+  const conf = item.confidence || 0.9;
+  const statusIcon = conf > 0.85 ? '✓' : conf > 0.6 ? '⚠' : '?';
+  const statusClass = conf > 0.85 ? 'ok' : conf > 0.6 ? 'warn' : 'bad';
+  const confColor = conf > 0.85 ? 'var(--green)' : conf > 0.6 ? 'var(--amber)' : 'var(--red)';
+
+  // Module 2: calcul prix/100g à la validation
+  const price100g = item.weight_g ? computePrice100g(item.price, `${item.weight_g}g`) : computePrice100g(item.price, item.unit);
+  const price100gDisplay = price100g ? `<div class="val-price100">${price100g.toFixed(2)}$/100g</div>` : '';
+
+  return `<div class="val-item" data-idx="${i}">
+    <div class="val-item-top">
+      <div class="val-status ${statusClass}">${statusIcon}</div>
+      <div class="val-item-info">
+        <div class="val-raw">${item.raw || ''}</div>
+        <div class="val-name">${item.name}</div>
+        <div class="val-cat">${item.category || ''} · ${item.unit || ''}</div>
+        <div class="confidence-bar"><div class="confidence-fill" style="width:${Math.round(conf * 100)}%;background:${confColor}"></div></div>
+      </div>
+      <div class="val-price-block">
+        <div class="val-price">$${(item.price || 0).toFixed(2)}</div>
+        ${price100gDisplay}
+        <div class="val-qty">qté: ${item.qty || 1}</div>
+      </div>
+    </div>
+    <div class="val-edit">
+      <div class="val-fields">
+        <div class="val-field val-field-full"><label>Nom du produit</label><input type="text" value="${item.name}" onchange="updateItem(${i},'name',this.value)"></div>
+        <div class="val-field"><label>Catégorie</label><select onchange="updateItem(${i},'category',this.value)">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nettoyage & maison','Santé & pharmacie','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
+        <div class="val-field"><label>Prix ($)</label><input type="number" step="0.01" value="${item.price}" onchange="updateItem(${i},'price',parseFloat(this.value))"></div>
+        <div class="val-field"><label>Quantité</label><input type="number" step="1" min="1" value="${item.qty || 1}" onchange="updateItem(${i},'qty',parseInt(this.value))"></div>
+        <div class="val-field"><label>Unité / Format</label><input type="text" value="${item.unit || 'unité'}" onchange="updateItem(${i},'unit',this.value)"></div>
+        <div class="val-field"><label>Poids (g)</label><input type="number" step="1" value="${item.weight_g || ''}" placeholder="ex: 454" onchange="updateItem(${i},'weight_g',parseInt(this.value)||null)"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+let pendingItems = [];
+function updateItem(idx, field, val) { pendingItems[idx] = { ...(pendingItems[idx] || {}) }; pendingItems[idx][field] = val; }
+
+function confirmReceipt() {
+  const store = document.getElementById('val-store-badge').textContent;
+  const today = new Date().toISOString().slice(0, 10);
+  const items = Array.from(document.querySelectorAll('.val-item')).map((el, i) => {
+    const inputs = el.querySelectorAll('input,select');
+    return {
+      name: inputs[0].value,
+      category: inputs[1].value,
+      price: parseFloat(inputs[2].value) || 0,
+      qty: parseInt(inputs[3].value) || 1,
+      unit: inputs[4].value,
+      weight_g: parseInt(inputs[5].value) || null
+    };
+  });
+
+  let added = 0;
+  items.forEach(item => {
+    if (!item.name || item.price <= 0) return;
+    const unitPrice = item.price / Math.max(item.qty, 1);
+
+    // Module 2: stocker prix_unitaire ET prix_100g
+    const price100g = item.weight_g ? computePrice100g(unitPrice, `${item.weight_g}g`) : null;
+
+    const histEntry = { d: today, m: store, p: unitPrice, region: userRegion || null };
+    if (item.weight_g) histEntry.g = item.weight_g;
+    if (price100g) histEntry.p100g = parseFloat(price100g.toFixed(4));
+
+    if (!DB[item.name]) {
+      DB[item.name] = {
+        cat: item.category,
+        unite: item.unit,
+        dernier_prix: unitPrice,
+        dernier_magasin: store,
+        dernier_date: today,
+        min: unitPrice, max: unitPrice, moy: unitPrice,
+        n: 1,
+        trend: 'stable', trend_pct: 0,
+        magasins: { [store]: { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 } },
+        historique: [histEntry]
+      };
+    } else {
+      const d = DB[item.name];
+      d.historique.push(histEntry);
+      d.n++; d.dernier_prix = unitPrice; d.dernier_magasin = store; d.dernier_date = today;
+      d.min = Math.min(d.min, unitPrice); d.max = Math.max(d.max, unitPrice);
+      const prices = d.historique.map(h => h.p);
+      d.moy = parseFloat((prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2));
+      if (prices.length >= 4) {
+        const f = prices.slice(0, 2).reduce((a, b) => a + b) / 2;
+        const l = prices.slice(-2).reduce((a, b) => a + b) / 2;
+        const pct = (l - f) / f * 100;
+        d.trend = pct > 5 ? 'up' : pct < -5 ? 'down' : 'stable';
+        d.trend_pct = parseFloat(pct.toFixed(1));
+      }
+      if (!d.magasins[store]) d.magasins[store] = { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 };
+      else {
+        const ms = d.magasins[store];
+        ms.n++; ms.min = Math.min(ms.min, unitPrice); ms.max = Math.max(ms.max, unitPrice);
+        const storeH = d.historique.filter(h => h.m === store);
+        ms.moy = parseFloat((storeH.reduce((a, h) => a + h.p, 0) / storeH.length).toFixed(2));
+      }
+
+      // Module 4: détecter shrinkflation automatiquement
+      // Si même prix (±5%) mais poids réduit → ajouter flag
+      if (item.weight_g && d.historique.length >= 2) {
+        const prev = [...d.historique].slice(0, -1).filter(h => h.g && h.g > 0);
+        if (prev.length > 0) {
+          const prevG = prev[prev.length - 1].g;
+          const prevP = prev[prev.length - 1].p;
+          if (item.weight_g < prevG * 0.95 && Math.abs(unitPrice - prevP) / prevP < 0.05) {
+            const reducPct = Math.round((1 - item.weight_g / prevG) * 100);
+            showToast(`⚠ Shrinkflation détectée sur ${item.name} (-${reducPct}% format)`, 'error');
+          }
+        }
+      }
+    }
+    added++;
+  });
+
+  renderSearch(); renderDash(); renderCats();
+  showToast(`${added} item${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''} ✓`, 'success');
+  switchTab('search');
+
+  // Supabase: sauvegarder les transactions en arrière-plan
+  if (SB_USER_ID && added > 0) {
+    const itemsToSave = items.filter(item => item.name && item.price > 0).map(item => ({
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      unitPrice: item.price / Math.max(item.qty, 1),
+      weight_g: item.weight_g || null,
+      p100g: item.weight_g ? parseFloat(((item.price / Math.max(item.qty, 1) / item.weight_g) * 100).toFixed(4)) : null
+    }));
+    sbSaveTransactions(itemsToSave, store, today).then(() => {
+      showSyncIndicator(false);
+    });
+    showSyncIndicator(true);
+  }
+}
+
+// ══════════════════════════════════════════
+// PAYWALL
+// ══════════════════════════════════════════
+
+function openPaywall() { document.getElementById('paywall-modal').classList.add('open'); }
+function closePaywall() { document.getElementById('paywall-modal').classList.remove('open'); }
+function simulateUpgrade() {
+  isPro = true;
+  document.getElementById('plan-badge').textContent = 'PRO';
+  document.getElementById('plan-badge').className = 'pro-badge';
+  closePaywall();
+  renderDash();
+  renderProfile();
+  showToast('✦ Bienvenue dans Panier Pro!', 'success');
+  if (SB_USER_ID) sbUpsertProfile({ is_pro: true });
+}
+
+async function showCommunity() {
+  if (!isPro) { openPaywall(); return; }
+  showToast('Chargement des données communautaires…');
+  // Récupère les 5 produits avec le plus de données communautaires partagées
+  try {
+    const rows = await sbFetch(
+      '/rest/v1/transactions?is_shared=eq.true' + (userRegion ? '&region=eq.' + userRegion : '') + '&select=product_name,price,store,date,region&order=date.desc&limit=100'
+    );
+    if (!rows || !rows.length) { showToast('Aucune donnée communautaire pour votre région 🇶🇨'); return; }
+    // Grouper par produit
+    const byProd = {};
+    rows.forEach(r => {
+      if (!byProd[r.product_name]) byProd[r.product_name] = [];
+      byProd[r.product_name].push(r);
+    });
+    const top = Object.entries(byProd).sort((a,b) => b[1].length - a[1].length).slice(0,5);
+    showToast(rows.length + ' entrées communautaires' + (userRegion ? ' (' + userRegion + ')' : '') + ' 🇶🇨', 'success');
+    console.log('Données communautaires:', top);
+  } catch(e) {
+    showToast('Données communautaires indisponibles — bientôt 🇶🇨');
+  }
+}
+
+// ══════════════════════════════════════════
+// COMMUNITY OPT-IN (Module 5)
+// ══════════════════════════════════════════
+
+let communityShareEnabled = false;
+
+function toggleCommunityShare() {
+  communityShareEnabled = !communityShareEnabled;
+  const tog = document.getElementById('share-toggle');
+  const sub = document.getElementById('share-sub');
+  if (tog) tog.textContent = communityShareEnabled ? '●' : '○';
+  if (tog) tog.style.color = communityShareEnabled ? 'var(--green)' : 'var(--text3)';
+  if (sub) sub.textContent = communityShareEnabled
+    ? 'Activé — vos futurs prix sont partagés'
+    : 'Désactivé — vos données restent privées';
+  showToast(communityShareEnabled ? 'Partage communautaire activé 🇶🇨' : 'Partage désactivé', '');
+}
+
+// ══════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════
+
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+</script>
+<script>
+if ("serviceWorker" in navigator) { navigator.serviceWorker.register("sw.js").catch(() => {}); }
+if (new URLSearchParams(location.search).get("scan") === "1") window.addEventListener("load", () => setTimeout(openScan, 800));
+</script>
+<!--
+═══════════════════════════════════════════════════════
+  SUPABASE — SQL de création des tables
+  À exécuter dans l'éditeur SQL de votre projet Supabase
+═══════════════════════════════════════════════════════
+
+-- Table: profiles
+create table if not exists public.profiles (
+  id           uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  region       char(3),
+  is_pro       boolean default false,
+  created_at   timestamptz default now(),
+  updated_at   timestamptz default now()
+);
+alter table public.profiles enable row level security;
+create policy "Profil personnel" on public.profiles
+  using (auth.uid() = id);
+create policy "Upsert profil" on public.profiles
+  for insert with check (auth.uid() = id);
+create policy "Modifier profil" on public.profiles
+  for update using (auth.uid() = id);
+
+-- Table: transactions
+create table if not exists public.transactions (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  product_name    text not null,
+  category        text,
+  unit            text,
+  price           numeric(10,4) not null,
+  weight_g        integer,
+  price_per_100g  numeric(10,4),
+  store           text not null,
+  date            date not null default current_date,
+  region          char(3),
+  is_shared       boolean default false,
+  created_at      timestamptz default now()
+);
+create index if not exists tx_user_idx       on public.transactions(user_id, date desc);
+create index if not exists tx_product_idx    on public.transactions(product_name);
+create index if not exists tx_shared_idx     on public.transactions(is_shared, region);
+
+alter table public.transactions enable row level security;
+
+-- Lecture: ses propres transactions + toutes les transactions partagées
+create policy "Lire transactions" on public.transactions
+  for select using (auth.uid() = user_id or is_shared = true);
+
+-- Écriture: ses propres transactions uniquement
+create policy "Insérer transactions" on public.transactions
+  for insert with check (auth.uid() = user_id);
+
+-- Table: community_pool (vue agrégée)
+create or replace view public.community_pool as
+  select
+    product_name,
+    region,
+    store,
+    round(avg(price)::numeric, 2)       as avg_price,
+    round(min(price)::numeric, 2)       as min_price,
+    round(max(price)::numeric, 2)       as max_price,
+    count(*)                            as sample_count,
+    max(date)                           as last_seen
+  from public.transactions
+  where is_shared = true
+  group by product_name, region, store;
+
+═══════════════════════════════════════════════════════
+-->
+</body>
+</html>
