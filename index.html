@@ -411,8 +411,12 @@ body{display:flex;flex-direction:column}
     <div class="scan-controls">
       <button class="scan-close" onclick="closeScan()">✕</button>
       <button class="scan-capture" onclick="capturePhoto()"><div class="scan-capture-inner"></div></button>
-      <button class="scan-upload" onclick="document.getElementById('file-input').click()">📁</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="scan-upload" onclick="document.getElementById('file-input').click()" title="Photo / image">📁</button>
+        <button class="scan-upload" onclick="document.getElementById('pdf-input').click()" title="Reçu PDF">📄</button>
+      </div>
       <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
+      <input type="file" id="pdf-input" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)">
     </div>
   </div>
 
@@ -1491,6 +1495,48 @@ function handleFileUpload(e) {
   reader.onload = ev => { const b64 = ev.target.result.split(',')[1]; processReceipt(b64); };
   reader.readAsDataURL(file);
   e.target.value = '';
+}
+
+function handlePdfUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { const b64 = ev.target.result.split(',')[1]; processPdf(b64); };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+async function processPdf(b64) {
+  showScreen('validate');
+  const body = document.getElementById('val-body');
+  body.innerHTML = '<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text">Claude analyse votre PDF…</div><div class="val-proc-sub">Extraction des produits et prix depuis le document</div></div>';
+
+  const prompt = 'Analyse ce reçu d’épicerie du Québec. Extrais tous les produits achetés.\n\nRetourne UNIQUEMENT un objet JSON avec cette structure exacte, sans autre texte:\n{\n  "store": "nom du magasin en français",\n  "date": "YYYY-MM-DD ou null",\n  "items": [\n    {\n      "raw": "texte exact du reçu",\n      "name": "nom normalisé du produit en français",\n      "category": "une de: Fruits & légumes, Laitiers & œufs, Épicerie, Viandes & poissons, Boulangerie, Surgelés, Nettoyage & maison, Santé & pharmacie, Autre",\n      "qty": 1,\n      "unit": "unité avec poids si présent ex: 500g, 1L, 2kg",\n      "price": 0.00,\n      "weight_g": null,\n      "confidence": 0.95\n    }\n  ]\n}\n\nIMPORTANT: Pour le champ weight_g, extrais le poids en grammes si visible sur le reçu (ex: 454g → 454, 1kg → 1000, 500ml → 500). Sinon null.';
+
+  try {
+    const resp = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+    const data = await resp.json();
+    const text = data.content.filter(c => c.type === 'text').map(c => c.text).join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    renderValidation(parsed);
+  } catch(err) {
+    renderValidationDemo();
+  }
 }
 
 async function processReceipt(b64) {
