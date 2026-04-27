@@ -1,4 +1,4 @@
-const CACHE = 'panier-v2';
+const CACHE = 'panier-v3';
 const ASSETS = ['/Panier---IPC/', '/Panier---IPC/index.html', '/Panier---IPC/manifest.json', '/Panier---IPC/prix_db.json', '/Panier---IPC/icon-192.png', '/Panier---IPC/icon-512.png'];
 
 self.addEventListener('install', e => {
