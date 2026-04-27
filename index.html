@@ -509,6 +509,11 @@ body{display:flex;flex-direction:column}
 <script>
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 
+// Propriétaires — accès Pro permanent sans passer par la DB
+const OWNER_EMAILS = [
+  // Ajoute ton email ici ex: 'pascal@example.com'
+];
+
 // ══════════════════════════════════════════
 // MODULE 5 — Supabase Backend
 // ══════════════════════════════════════════
@@ -1342,7 +1347,7 @@ async function tryRestoreSession() {
     name: profile?.display_name || sess.user.email.split('@')[0],
     email: sess.user.email
   };
-  isPro = profile?.is_pro || false;
+  isPro = profile?.is_pro || OWNER_EMAILS.includes(currentUser?.email);
   userRegion = profile?.region || '';
   return true;
 }
@@ -1362,7 +1367,7 @@ async function doLogin() {
       name: profile?.display_name || data.user.email.split('@')[0],
       email: data.user.email
     };
-    isPro = profile?.is_pro || false;
+    isPro = profile?.is_pro || OWNER_EMAILS.includes(currentUser?.email);
     userRegion = profile?.region || '';
     enterApp();
   } catch(e) { setAuthMsg(e.message); }
@@ -1386,7 +1391,7 @@ async function doSignup() {
       // Créer le profil
       await sbUpsertProfile({ display_name: name, region, is_pro: false });
       currentUser = { name, email };
-      isPro = false;
+      isPro = OWNER_EMAILS.includes(email);
       userRegion = region;
       enterApp();
       showToast(`Bienvenue, ${name}! 🎉`, 'success');
