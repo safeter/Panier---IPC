@@ -1,5 +1,5 @@
-const CACHE = 'panier-v1';
-const ASSETS = ['/', '/index.html', '/manifest.json', '/prix_db.json'];
+const CACHE = 'panier-v2';
+const ASSETS = ['/Panier---IPC/', '/Panier---IPC/index.html', '/Panier---IPC/manifest.json', '/Panier---IPC/prix_db.json', '/Panier---IPC/icon-192.png', '/Panier---IPC/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
