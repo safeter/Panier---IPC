@@ -503,11 +503,41 @@ body{display:flex;flex-direction:column}
   </div>
 </div>
 
+<!-- MODAL CLÉ API CLAUDE -->
+<div class="modal-bg" id="apikey-modal">
+  <div class="modal">
+    <div class="modal-title">🔑 Clé API Claude</div>
+    <div class="modal-sub">Requise pour le scanner de reçus. Disponible sur console.anthropic.com. Stockée uniquement dans votre navigateur.</div>
+    <div class="field">
+      <label>Clé Anthropic (sk-ant-…)</label>
+      <input id="apikey-input" type="password" class="region-input" style="font-size:13px" placeholder="sk-ant-api03-…">
+    </div>
+    <button class="btn-primary" onclick="saveClaudeKey()">Enregistrer</button>
+    <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closeApikeyModal()">Annuler</button>
+  </div>
+</div>
+
+<!-- MODAL JOURNAL DES ACHATS -->
+<div class="modal-bg" id="journal-modal" style="align-items:flex-start">
+  <div class="modal" style="border-radius:0 0 24px 24px;max-height:92vh;padding-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="modal-title" style="margin-bottom:0">📋 Journal des achats</div>
+      <button class="scan-close" style="background:var(--bg3)" onclick="closeJournalModal()">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn-sec" style="flex:1;font-size:13px" onclick="exportJournalCSV()">⬇ CSV</button>
+      <button class="btn-sec" style="flex:1;font-size:13px" onclick="exportJournalXLSX()">⬇ Excel</button>
+    </div>
+    <div id="journal-list" style="overflow-y:auto;max-height:72vh"></div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
 <script>
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+let CLAUDE_KEY = localStorage.getItem('panier_claude_key') || '';
 
 // Propriétaires — accès Pro permanent sans passer par la DB
 const OWNER_EMAILS = ['pascaldu723@gmail.com'];
@@ -1247,6 +1277,8 @@ function renderProfile() {
   const alertesSub = isPro ? 'Configurez vos alertes' : 'Pro requis';
   const exportSub  = isPro ? 'CSV de votre historique' : 'Pro requis';
 
+  const keyStatus = CLAUDE_KEY ? 'Configurée (' + CLAUDE_KEY.slice(0, 12) + '…)' : 'Non configurée — scanner en mode démo';
+
   el.innerHTML = `
   <div class="profile-hero">
     <div class="avatar">${initials}</div>
@@ -1265,7 +1297,9 @@ function renderProfile() {
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
-    <div class="menu-item" onclick="showToast('Panier v0.2.0 — Supabase + IPC + Alertes')"><div class="menu-item-icon">ℹ️</div><div class="menu-item-text"><div class="menu-item-title">À propos</div><div class="menu-item-sub">Panier v0.2.0 — modules avancés</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="openJournalModal()"><div class="menu-item-icon">📋</div><div class="menu-item-text"><div class="menu-item-title">Journal des achats</div><div class="menu-item-sub">Toutes vos transactions · export CSV / Excel</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="openApikeyModal()"><div class="menu-item-icon">🔑</div><div class="menu-item-text"><div class="menu-item-title">Clé API Claude</div><div class="menu-item-sub">${keyStatus}</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="showToast('Panier v0.3.0 — Journal · API Claude · Export XLS')"><div class="menu-item-icon">ℹ️</div><div class="menu-item-text"><div class="menu-item-title">À propos</div><div class="menu-item-sub">Panier v0.3.0</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="showToast('Données privées par défaut. Opt-in communautaire disponible.')"><div class="menu-item-icon">🔒</div><div class="menu-item-text"><div class="menu-item-title">Confidentialité</div><div class="menu-item-sub">Données privées par défaut</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item danger" onclick="doLogout()"><div class="menu-item-icon">🚪</div><div class="menu-item-text"><div class="menu-item-title">Déconnexion</div></div><div class="menu-item-arrow">›</div></div>
   </div>
@@ -1519,7 +1553,7 @@ async function processPdf(b64) {
   try {
     const resp = await fetch(CLAUDE_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1500,
@@ -1550,7 +1584,7 @@ async function processReceipt(b64) {
   try {
     const resp = await fetch(CLAUDE_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1500,
@@ -1777,6 +1811,106 @@ function confirmReceipt() {
 
 function openPaywall() { document.getElementById('paywall-modal').classList.add('open'); }
 function closePaywall() { document.getElementById('paywall-modal').classList.remove('open'); }
+
+// ── Clé API Claude ─────────────────────────────────────────
+function openApikeyModal() {
+  document.getElementById('apikey-input').value = CLAUDE_KEY;
+  document.getElementById('apikey-modal').classList.add('open');
+}
+function closeApikeyModal() { document.getElementById('apikey-modal').classList.remove('open'); }
+function saveClaudeKey() {
+  const k = document.getElementById('apikey-input').value.trim();
+  CLAUDE_KEY = k;
+  localStorage.setItem('panier_claude_key', k);
+  closeApikeyModal();
+  showToast(k ? 'Clé API Claude enregistrée ✓' : 'Clé API supprimée', 'success');
+}
+
+// ── Journal des achats ──────────────────────────────────────
+async function openJournalModal() {
+  document.getElementById('journal-modal').classList.add('open');
+  const el = document.getElementById('journal-list');
+  el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Chargement…</div>';
+  try {
+    const src = SB_USER_ID
+      ? await sbFetch('/rest/v1/transactions?user_id=eq.' + SB_USER_ID + '&select=*&order=date.desc&limit=5000')
+      : null;
+    const rows = src && src.length ? src : buildJournalFromDB();
+    if (!rows.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Aucune transaction</div>'; return; }
+    window._journalRows = rows;
+    el.innerHTML = rows.map(r => {
+      const p100g = r.price_per_100g ? '<span style="font-size:11px;color:var(--text3);margin-left:6px">' + r.price_per_100g.toFixed(2) + '$/100g</span>' : '';
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
+        + '<div><div style="font-size:14px;font-weight:600">' + (r.product_name || r.name || '') + '</div>'
+        + '<div style="font-size:12px;color:var(--text2)">' + (r.date || r.d || '') + ' · ' + (r.store || r.m || '') + '</div></div>'
+        + '<div style="text-align:right"><div style="font-size:15px;font-weight:700">$' + ((r.price || r.p || 0).toFixed(2)) + '</div>' + p100g + '</div>'
+        + '</div>';
+    }).join('');
+  } catch(e) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--red)">Erreur: ' + e.message + '</div>'; }
+}
+function closeJournalModal() { document.getElementById('journal-modal').classList.remove('open'); }
+
+function buildJournalFromDB() {
+  const rows = [];
+  Object.entries(DB).forEach(([name, d]) => {
+    (d.historique || []).forEach(h => rows.push({ product_name: name, date: h.d, store: h.m, price: h.p, price_per_100g: h.p100g || null }));
+  });
+  return rows.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function exportJournalCSV() {
+  const rows = window._journalRows || buildJournalFromDB();
+  if (!rows.length) { showToast('Aucune donnée', 'error'); return; }
+  const header = ['Date', 'Produit', 'Catégorie', 'Magasin', 'Prix', 'Prix/100g', 'Poids(g)', 'Unité', 'Région'];
+  const lines = [header.join(',')];
+  rows.forEach(r => {
+    lines.push([
+      r.date || r.d || '', r.product_name || r.name || '', r.category || '',
+      r.store || r.m || '', (r.price || r.p || 0).toFixed(2),
+      r.price_per_100g ? r.price_per_100g.toFixed(4) : '',
+      r.weight_g || '', r.unit || '', r.region || ''
+    ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+  });
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'panier-journal-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  showToast('Export CSV — ' + rows.length + ' transactions', 'success');
+}
+
+function exportJournalXLSX() {
+  const rows = window._journalRows || buildJournalFromDB();
+  if (!rows.length) { showToast('Aucune donnée', 'error'); return; }
+  // Génère un fichier XML SpreadsheetML (ouvre dans Excel/Numbers sans dépendance)
+  const cols = ['Date','Produit','Catégorie','Magasin','Prix','Prix/100g','Poids(g)','Unité','Région'];
+  const esc = v => String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const cell = (v, isNum) => isNum && v !== ''
+    ? '<Cell><Data ss:Type="Number">' + esc(v) + '</Data></Cell>'
+    : '<Cell><Data ss:Type="String">' + esc(v) + '</Data></Cell>';
+  let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>'
+    + '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+    + '<Worksheet ss:Name="Journal"><Table>'
+    + '<Row>' + cols.map(c => cell(c, false)).join('') + '</Row>';
+  rows.forEach(r => {
+    xml += '<Row>'
+      + cell(r.date || r.d || '', false)
+      + cell(r.product_name || r.name || '', false)
+      + cell(r.category || '', false)
+      + cell(r.store || r.m || '', false)
+      + cell((r.price || r.p || 0).toFixed(2), true)
+      + cell(r.price_per_100g ? r.price_per_100g.toFixed(4) : '', r.price_per_100g)
+      + cell(r.weight_g || '', r.weight_g)
+      + cell(r.unit || '', false)
+      + cell(r.region || '', false)
+      + '</Row>';
+  });
+  xml += '</Table></Worksheet></Workbook>';
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'panier-journal-' + new Date().toISOString().slice(0,10) + '.xls';
+  a.click();
+  showToast('Export Excel — ' + rows.length + ' transactions', 'success');
+}
 function simulateUpgrade() {
   isPro = true;
   document.getElementById('plan-badge').textContent = 'PRO';
