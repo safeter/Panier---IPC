@@ -2,7 +2,7 @@
   "name": "Panier — Prix d'épicerie au Québec",
   "short_name": "Panier",
   "description": "Suivez les vrais prix d'épicerie au Québec, ensemble.",
-  "start_url": "/",
+  "start_url": "/Panier---IPC/",
   "display": "standalone",
   "background_color": "#0a0c0f",
   "theme_color": "#0a0c0f",
@@ -10,8 +10,10 @@
   "categories": ["food", "finance", "shopping"],
   "lang": "fr-CA",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "screenshots": [],
   "shortcuts": [

@@ -416,7 +416,7 @@ body{display:flex;flex-direction:column}
         <button class="scan-upload" onclick="document.getElementById('pdf-input').click()" title="Reçu PDF">📄</button>
       </div>
       <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
-      <input type="file" id="pdf-input" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)">
+      <input type="file" id="pdf-input" accept=".pdf,application/pdf,application/x-pdf" style="display:none" onchange="handlePdfUpload(event)">
     </div>
   </div>
 
