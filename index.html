@@ -1020,7 +1020,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Tenter de restaurer une session Supabase existante
-  const restored = await tryRestoreSession();
+  let restored = false;
+  try { restored = await tryRestoreSession(); } catch(e) { console.warn('Session restore failed:', e.message); }
   if (restored) {
     // Session restaurée → aller directement dans l'app
     document.getElementById('screen-auth').classList.remove('active');
@@ -1553,7 +1554,7 @@ async function processPdf(b64) {
   try {
     const resp = await fetch(CLAUDE_API, {
       method: 'POST',
-      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
+      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1500,
@@ -1584,7 +1585,7 @@ async function processReceipt(b64) {
   try {
     const resp = await fetch(CLAUDE_API, {
       method: 'POST',
-      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
+      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1500,
