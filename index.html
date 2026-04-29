@@ -650,8 +650,10 @@ async function sbLoadTransactions() {
       `/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=*&order=date.asc&limit=2000`
     );
     if (!rows || !rows.length) return;
-    // Reconstruire DB depuis les transactions
-    DB = {};
+    // Retirer du DB les produits couverts par Supabase (évite le double-comptage avec le Sheet)
+    const sbProducts = new Set(rows.map(r => r.product_name).filter(Boolean));
+    sbProducts.forEach(name => { delete DB[name]; });
+    // Reconstruire depuis les transactions Supabase
     rows.forEach(tx => ingestTransaction(tx));
   } catch(e) { console.warn('sbLoadTransactions', e.message); }
 }
@@ -736,8 +738,8 @@ async function sbCommunityPrices(productName, region) {
   } catch { return []; }
 }
 
-const CAT_ICONS={'Fruits & légumes':'🥦','Laitiers & œufs':'🥛','Épicerie':'🥫','Viandes & poissons':'🥩','Boulangerie':'🍞','Surgelés':'❄️','Nourriture chien':'🐶','Nettoyage & maison':'🧹','Santé & pharmacie':'💊','Chocolat & confiseries':'🍫','Alcool & boissons':'🍷','Autre':'📦'};
-const CAT_BG={'Fruits & légumes':'rgba(34,197,94,0.12)','Laitiers & œufs':'rgba(96,165,250,0.12)','Épicerie':'rgba(245,158,11,0.12)','Viandes & poissons':'rgba(239,68,68,0.12)','Boulangerie':'rgba(251,146,60,0.12)','Surgelés':'rgba(129,140,248,0.12)'};
+const CAT_ICONS={'Fruits & légumes':'🥦','Laitiers & œufs':'🥛','Épicerie':'🥫','Viandes & poissons':'🥩','Boulangerie':'🍞','Surgelés':'❄️','Nourriture chien':'🐶','Nettoyage & maison':'🧹','Santé & pharmacie':'💊','Chocolat & confiseries':'🍫','Alcool & boissons':'🍷','Bébé':'🍼','Loisirs':'🎮','Quincaillerie':'🔧','Resto & livraison':'🍽️','Services & abonnements':'📱','Autre':'📦'};
+const CAT_BG={'Fruits & légumes':'rgba(34,197,94,0.12)','Laitiers & œufs':'rgba(96,165,250,0.12)','Épicerie':'rgba(245,158,11,0.12)','Viandes & poissons':'rgba(239,68,68,0.12)','Boulangerie':'rgba(251,146,60,0.12)','Surgelés':'rgba(129,140,248,0.12)','Bébé':'rgba(244,114,182,0.12)','Loisirs':'rgba(52,211,153,0.12)','Quincaillerie':'rgba(156,163,175,0.12)','Resto & livraison':'rgba(251,191,36,0.12)','Services & abonnements':'rgba(99,102,241,0.12)'};
 
 let DB={}, activeCard=null, activeGroupKey=null, activeCat='Tous', searchQ='', currentUser=null, isPro=false, prevScreen='search', camStream=null;
 let userRegion = '';
@@ -975,12 +977,71 @@ function renderBadges(badges) {
 // DATABASE
 // ══════════════════════════════════════════
 
-async function initDB() {
-  // 1. Charger le catalogue de base (prix_db.json) comme seed public
+const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQBcEBSLfQk0pzG1zxTsUXxEafOMgzrX_zOBagDqff1jPo_QUFOxTt00122WCEXEHUKlyYOf8nidFTK/pub?output=csv';
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+async function loadSheetDB() {
   try {
-    const r = await fetch('prix_db.json');
-    DB = await r.json();
-  } catch(e) { DB = {}; }
+    const r = await fetch(SHEETS_CSV_URL);
+    if (!r.ok) return null;
+    const text = await r.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const headerIdx = lines.findIndex(l => /produit/i.test(l) && /cat/i.test(l));
+    if (headerIdx < 0) return null;
+    const result = {};
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i]);
+      const name = (cols[0] || '').replace(/\r/, '');
+      const cat = (cols[1] || 'Épicerie').replace(/\r/, '');
+      const unite = (cols[2] || 'unité').replace(/\r/, '');
+      const n = parseInt(cols[3]) || 0;
+      const min = parseFloat(cols[4]) || 0;
+      const moy = parseFloat(cols[5]) || 0;
+      const max = parseFloat(cols[6]) || 0;
+      const dernier_date = (cols[7] || '').replace(/\r/, '');
+      if (!name || name.length < 2) continue;
+      if (!min && !moy && !max) continue;
+      result[name] = {
+        cat, unite, n,
+        min: min || moy, max: max || moy, moy: moy || min,
+        dernier_prix: moy || min,
+        dernier_magasin: '—',
+        dernier_date,
+        trend: 'stable', trend_pct: 0,
+        magasins: {}, historique: []
+      };
+    }
+    return Object.keys(result).length ? result : null;
+  } catch(e) {
+    console.warn('loadSheetDB:', e.message);
+    return null;
+  }
+}
+
+async function initDB() {
+  // 1. Charger le catalogue depuis Google Sheets (source principale)
+  const sheetDB = await loadSheetDB();
+  if (sheetDB) {
+    DB = sheetDB;
+  } else {
+    // Fallback: prix_db.json
+    try {
+      const r = await fetch('prix_db.json');
+      DB = await r.json();
+    } catch(e) { DB = {}; }
+  }
 
   // 2. Si connecté Supabase, fusionner les transactions perso par-dessus
   if (SB_USER_ID) {
