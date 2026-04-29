@@ -1804,22 +1804,34 @@ async function processPdf(b64) {
         ]}]})
       });
       const data = await resp.json();
+      if (data.error) throw new Error('Claude: ' + data.error.message);
       renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
     } else {
+      const statusEl = document.getElementById('scan-status');
       const sub = document.getElementById('scan-sub');
-      if (sub) sub.textContent = 'Conversion PDF → image (PDF.js)';
-      if (!window.pdfjsLib) throw new Error('PDF.js non chargé');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      if (sub) sub.textContent = 'Conversion PDF → image…';
+      if (!window.pdfjsLib) throw new Error('PDF.js non chargé — rechargez la page');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      // Conversion base64 → Uint8Array robuste
+      const binaryStr = atob(b64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      if (statusEl) statusEl.textContent = 'Rendu de la page…';
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       const page = await pdf.getPage(1);
       const vp = page.getViewport({ scale: 2 });
       const canvas = document.createElement('canvas');
       canvas.width = vp.width; canvas.height = vp.height;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-      await ocrImage(canvas.toDataURL('image/jpeg', 0.9).split(',')[1]);
+      if (statusEl) statusEl.textContent = 'OCR en cours…';
+      if (sub) sub.textContent = 'Lecture du texte (Tesseract)';
+      await ocrImage(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
     }
-  } catch(e) { renderValidationDemo(); }
+  } catch(e) {
+    console.error('processPdf:', e);
+    showToast('Erreur PDF: ' + e.message, 'error');
+    renderValidationDemo();
+  }
 }
 
 async function processReceipt(b64) {
@@ -1837,11 +1849,16 @@ async function processReceipt(b64) {
         ]}]})
       });
       const data = await resp.json();
+      if (data.error) throw new Error('Claude: ' + data.error.message);
       renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
     } else {
       await ocrImage(b64);
     }
-  } catch(e) { renderValidationDemo(); }
+  } catch(e) {
+    console.error('processReceipt:', e);
+    showToast('Erreur scan: ' + e.message, 'error');
+    renderValidationDemo();
+  }
 }
 
 // ── OCR local via Tesseract.js ─────────────────────────────
