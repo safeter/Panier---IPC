@@ -1547,85 +1547,117 @@ function handlePdfUpload(e) {
 async function processPdf(b64) {
   showScreen('validate');
   const body = document.getElementById('val-body');
-  body.innerHTML = '<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text">Claude analyse votre PDF…</div><div class="val-proc-sub">Extraction des produits et prix depuis le document</div></div>';
-
-  const prompt = 'Analyse ce reçu d’épicerie du Québec. Extrais tous les produits achetés.\n\nRetourne UNIQUEMENT un objet JSON avec cette structure exacte, sans autre texte:\n{\n  "store": "nom du magasin en français",\n  "date": "YYYY-MM-DD ou null",\n  "items": [\n    {\n      "raw": "texte exact du reçu",\n      "name": "nom normalisé du produit en français",\n      "category": "une de: Fruits & légumes, Laitiers & œufs, Épicerie, Viandes & poissons, Boulangerie, Surgelés, Nettoyage & maison, Santé & pharmacie, Autre",\n      "qty": 1,\n      "unit": "unité avec poids si présent ex: 500g, 1L, 2kg",\n      "price": 0.00,\n      "weight_g": null,\n      "confidence": 0.95\n    }\n  ]\n}\n\nIMPORTANT: Pour le champ weight_g, extrais le poids en grammes si visible sur le reçu (ex: 454g → 454, 1kg → 1000, 500ml → 500). Sinon null.';
-
+  body.innerHTML = '<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text" id="scan-status">Chargement PDF…</div><div class="val-proc-sub" id="scan-sub">Préparation du document</div></div>';
   try {
-    const resp = await fetch(CLAUDE_API, {
-      method: 'POST',
-      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-            { type: 'text', text: prompt }
-          ]
-        }]
-      })
-    });
-    const data = await resp.json();
-    const text = data.content.filter(c => c.type === 'text').map(c => c.text).join('');
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    renderValidation(parsed);
-  } catch(err) {
-    renderValidationDemo();
-  }
+    if (CLAUDE_KEY) {
+      const prompt = 'Analyse ce reçu d\'épicerie québécois. Retourne UNIQUEMENT un JSON: {"store":"...","date":"YYYY-MM-DD","items":[{"raw":"...","name":"...","category":"Épicerie","qty":1,"unit":"...","price":0.00,"weight_g":null,"confidence":0.9}]}';
+      const resp = await fetch(CLAUDE_API, {
+        method: 'POST',
+        headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, {'x-api-key':CLAUDE_KEY}),
+        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1500, messages:[{ role:'user', content:[
+          { type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 } },
+          { type:'text', text:prompt }
+        ]}]})
+      });
+      const data = await resp.json();
+      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
+    } else {
+      const sub = document.getElementById('scan-sub');
+      if (sub) sub.textContent = 'Conversion PDF → image (PDF.js)';
+      if (!window.pdfjsLib) throw new Error('PDF.js non chargé');
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      const page = await pdf.getPage(1);
+      const vp = page.getViewport({ scale: 2 });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      await ocrImage(canvas.toDataURL('image/jpeg', 0.9).split(',')[1]);
+    }
+  } catch(e) { renderValidationDemo(); }
 }
 
 async function processReceipt(b64) {
   showScreen('validate');
   const body = document.getElementById('val-body');
-  body.innerHTML = `<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text">Claude analyse votre reçu…</div><div class="val-proc-sub">Identification des produits, prix et formats</div></div>`;
-
+  body.innerHTML = '<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text" id="scan-status">Analyse en cours…</div><div class="val-proc-sub" id="scan-sub">Lecture du reçu</div></div>';
   try {
-    const resp = await fetch(CLAUDE_API, {
-      method: 'POST',
-      headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, CLAUDE_KEY ? {'x-api-key':CLAUDE_KEY} : {}),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-            { type: 'text', text: `Analyse ce reçu d'épicerie du Québec. Extrais tous les produits achetés.
-
-Retourne UNIQUEMENT un objet JSON avec cette structure exacte, sans autre texte:
-{
-  "store": "nom du magasin en français",
-  "date": "YYYY-MM-DD ou null",
-  "items": [
-    {
-      "raw": "texte exact du reçu",
-      "name": "nom normalisé du produit en français",
-      "category": "une de: Fruits & légumes, Laitiers & œufs, Épicerie, Viandes & poissons, Boulangerie, Surgelés, Nettoyage & maison, Santé & pharmacie, Autre",
-      "qty": 1,
-      "unit": "unité avec poids si présent ex: 500g, 1L, 2kg",
-      "price": 0.00,
-      "weight_g": null,
-      "confidence": 0.95
+    if (CLAUDE_KEY) {
+      const resp = await fetch(CLAUDE_API, {
+        method: 'POST',
+        headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, {'x-api-key':CLAUDE_KEY}),
+        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1500, messages:[{ role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:b64 } },
+          { type:'text', text:'Analyse ce reçu d\'épicerie québécois. Retourne UNIQUEMENT un JSON: {"store":"...","date":"YYYY-MM-DD","items":[{"raw":"...","name":"...","category":"Épicerie","qty":1,"unit":"...","price":0.00,"weight_g":null,"confidence":0.9}]}' }
+        ]}]})
+      });
+      const data = await resp.json();
+      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
+    } else {
+      await ocrImage(b64);
     }
-  ]
+  } catch(e) { renderValidationDemo(); }
 }
 
-IMPORTANT: Pour le champ weight_g, extrais le poids en grammes si visible sur le reçu (ex: 454g → 454, 1kg → 1000, 500ml → 500). Sinon null.` }
-          ]
-        }]
-      })
-    });
-    const data = await resp.json();
-    const text = data.content.filter(c => c.type === 'text').map(c => c.text).join('');
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    renderValidation(parsed);
-  } catch(e) {
-    renderValidationDemo();
+// ── OCR local via Tesseract.js ─────────────────────────────
+async function ocrImage(b64) {
+  const statusEl = document.getElementById('scan-status');
+  const subEl = document.getElementById('scan-sub');
+  if (subEl) subEl.textContent = 'OCR local — aucune clé requise';
+  if (!window.Tesseract) { renderValidationDemo(); return; }
+  const { data: { text } } = await Tesseract.recognize(
+    'data:image/jpeg;base64,' + b64, 'fra+eng',
+    { logger: m => { if (m.status === 'recognizing text' && statusEl) statusEl.textContent = 'OCR ' + Math.round(m.progress * 100) + '%…'; } }
+  );
+  const parsed = parseReceiptText(text);
+  if (!parsed.items.length) { showToast('Reçu illisible — réessayez avec une photo plus nette'); renderValidationDemo(); }
+  else renderValidation(parsed);
+}
+
+function inferCategory(n) {
+  if (/lait|beurre|fromage|yogourt|crème|oeuf|oeuff|oeufs|crème sure|margarine/.test(n)) return 'Laitiers & œufs';
+  if (/banane|pomme|orange|fraise|bleuet|tomate|laitue|carotte|oignon|poivron|brocoli|concombre|épinard|raisin|mangue|avocat|courgette|champignon|patate|pomme de terre|céleri|persil|lime|citron/.test(n)) return 'Fruits & légumes';
+  if (/poulet|boeuf|porc|saumon|thon|tilapia|crevette|viande|poisson|jambon|bacon|côte|steak|veau|agneau|dinde|merguez|saucisse/.test(n)) return 'Viandes & poissons';
+  if (/pain|bagel|croissant|muffin|gâteau|biscuit|tortilla|pita|focaccia/.test(n)) return 'Boulangerie';
+  if (/surgelé|congelé|pizza|frite|glace|popsicle/.test(n)) return 'Surgelés';
+  if (/savon|shampoo|détergent|nettoyant|papier|essuie|sac poubelle|balai|éponge/.test(n)) return 'Nettoyage & maison';
+  if (/médicament|vitamine|ibuprofène|aspirine|tylenol/.test(n)) return 'Santé & pharmacie';
+  if (/bière|vin|alcool|cidre|whisky|boisson|jus|eau|café|thé|kombucha|limonade/.test(n)) return 'Alcool & boissons';
+  if (/chocolat|bonbon|friandise|croustille|chips|gâteau|sucrerie/.test(n)) return 'Chocolat & confiseries';
+  return 'Épicerie';
+}
+
+function parseReceiptText(raw) {
+  const KNOWN_STORES = ['super c','iga','maxi','provigo','metro','walmart','costco','marché 440','sobeys','loblaws','pharmaprix','jean coutu','dollarama','tim horton','mcdonald','subway','rona','canadian tire'];
+  const SKIP_RE = /sous-total|subtotal|\btotal\b|tps|tvq|gst|qst|\btax\b|espèces|\bcash\b|visa|mastercard|débit|debit|monnaie|change|merci|thank|caisse|cashier|\btel\b|tél|www\.|\.com|points|économi|rabais|remise|coupon|solde|balance|\bno\b\s+de|\breg\b|\bvente\b|\bclient\b|facture|invoice|reçu no|receipt|\bitem\b\s+\d|\bauthori|\bapprouv/i;
+  const PRICE_RE = /(\d{1,3}[.,]\d{2})\s*[ABCF]?\s*$/;
+  const DATE_RE = /\b(\d{4}-\d{2}-\d{2}|\d{2}[\/\-]\d{2}[\/\-]\d{2,4})\b/;
+  const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+  let store = 'Magasin inconnu', date = null;
+  const items = [];
+  for (const line of lines) {
+    const lo = line.toLowerCase();
+    if (store === 'Magasin inconnu') { for (const s of KNOWN_STORES) { if (lo.includes(s)) { store = s.charAt(0).toUpperCase() + s.slice(1); break; } } }
+    const dm = line.match(DATE_RE);
+    if (dm && !date) date = dm[1];
+    if (SKIP_RE.test(lo)) continue;
+    const pm = line.match(PRICE_RE);
+    if (!pm) continue;
+    const price = parseFloat(pm[1].replace(',', '.'));
+    if (price <= 0 || price > 999) continue;
+    let name = line.slice(0, line.lastIndexOf(pm[0])).replace(/\s+/g, ' ').trim();
+    if (name.length < 2 || /^\d+$/.test(name)) continue;
+    const wg = (name.match(/(\d+)\s*g\b/i) || [])[1];
+    const wml = (name.match(/(\d+)\s*ml\b/i) || [])[1];
+    const wkg = (name.match(/(\d+[.,]\d+)\s*kg\b/i) || [])[1];
+    const wl = (name.match(/(\d+[.,]\d+)\s*l\b/i) || [])[1];
+    const weight_g = wkg ? Math.round(parseFloat(wkg.replace(',','.'))*1000) : wl ? Math.round(parseFloat(wl.replace(',','.'))*1000) : wg ? parseInt(wg) : wml ? parseInt(wml) : null;
+    const unit = weight_g ? weight_g + 'g' : 'unité';
+    const norm = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+    items.push({ raw: name, name: norm, category: inferCategory(lo), qty: 1, unit, price, weight_g, confidence: 0.72 });
   }
+  return { store, date, items };
 }
 
 function renderValidationDemo() {
@@ -2051,4 +2083,6 @@ create or replace view public.community_pool as
 ═══════════════════════════════════════════════════════
 -->
 </body>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 </html>
