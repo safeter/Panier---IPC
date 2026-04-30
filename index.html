@@ -1095,9 +1095,31 @@ function buildGroupedProds(prods) {
     groups[key].variants.push(p);
   });
 
+  // Reassign singletons whose normalized name CONTAINS another group's base key as a word
+  // e.g. "Twining tisane honeybush" → contains "tisane" → joins Tisane group
+  const multiKeys = Object.keys(groups).filter(k => groups[k].variants.length > 1);
+  Object.keys(groups).forEach(k => {
+    if (!groups[k] || groups[k].variants.length !== 1) return;
+    const p = groups[k].variants[0];
+    const normName = norm(p.name);
+    for (const mk of multiKeys) {
+      if (!groups[mk]) continue;
+      const base = mk.split(':').slice(1).join(':'); // strip cat prefix
+      if (base.length < 3) continue;
+      if (groups[mk].cat !== (p.cat || '')) continue;
+      // Check base appears as a whole word (or word sequence) inside normName
+      const re = new RegExp('\\b' + base.replace(/\s+/g, '\\s+') + '\\b');
+      if (re.test(normName)) {
+        groups[mk].variants.push(p);
+        delete groups[k];
+        break;
+      }
+    }
+  });
+
   return Object.values(groups).map(g => {
     if (g.variants.length === 1) return { ...g.variants[0], _isGroup: false };
-    const all = g.variants;
+    const all = g.variants.slice().sort((a, b) => b.n - a.n); // variants by purchases desc
     const allHist = all.flatMap(v => v.historique || []).sort((a, b) => (a.d || '').localeCompare(b.d || ''));
     const allPrices = allHist.map(h => h.p);
     const allMagasins = {};
@@ -1114,7 +1136,7 @@ function buildGroupedProds(prods) {
     const totalN = all.reduce((s, v) => s + v.n, 0);
     const minPrice = Math.min(...all.map(v => v.min));
     const maxPrice = Math.max(...all.map(v => v.max));
-    const moyPrice = allPrices.length ? parseFloat((allPrices.reduce((a, b) => a + b, 0) / allPrices.length).toFixed(2)) : 0;
+    const moyPrice = allPrices.length ? parseFloat((allPrices.reduce((a, b) => a + b, 0) / allPrices.length).toFixed(2)) : parseFloat((all.reduce((s, v) => s + v.moy, 0) / all.length).toFixed(2));
     let trend = 'stable', trend_pct = 0;
     if (allPrices.length >= 4) {
       const f = allPrices.slice(0, 2).reduce((a, b) => a + b) / 2;
@@ -1125,6 +1147,7 @@ function buildGroupedProds(prods) {
     }
     const lastVariant = all.reduce((lv, v) => (v.dernier_date || '') > (lv.dernier_date || '') ? v : lv);
     const shortestName = all.reduce((s, v) => v.name.length < s.name.length ? v : s).name;
+    const maxScore = Math.max(...all.map(v => v._s || 0));
     return {
       name: shortestName,
       cat: g.cat,
@@ -1139,7 +1162,8 @@ function buildGroupedProds(prods) {
       trend, trend_pct,
       _isGroup: true,
       _variants: all,
-      _groupKey: g.key
+      _groupKey: g.key,
+      _s: maxScore
     };
   });
 }
