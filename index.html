@@ -442,7 +442,10 @@ body{display:flex;flex-direction:column}
     <div class="val-header">
       <button class="icon-btn" onclick="showScreen('search')" style="width:32px;height:32px;font-size:18px">←</button>
       <div class="val-title">Valider le reçu</div>
-      <div class="val-store-badge" id="val-store-badge">Magasin</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <div class="val-store-badge" id="val-store-badge" contenteditable="true" spellcheck="false">Magasin</div>
+        <input type="date" id="val-date" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:11px;color:var(--text2);font-family:'DM Mono',monospace">
+      </div>
     </div>
     <div id="val-body" style="flex:1;display:flex;flex-direction:column;overflow:hidden"></div>
   </div>
@@ -1785,11 +1788,11 @@ function closeScan() {
 
 function capturePhoto() {
   const video = document.getElementById('cam-video');
-  if (!video.srcObject) { showToast('Caméra non disponible', 'error'); return; }
+  if (!video.srcObject || !video.videoWidth) { showToast('Caméra pas encore prête', 'error'); return; }
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  const b64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
   closeScan();
   processReceipt(b64);
 }
@@ -1890,7 +1893,7 @@ async function ocrImage(b64) {
   const statusEl = document.getElementById('scan-status');
   const subEl = document.getElementById('scan-sub');
   if (subEl) subEl.textContent = 'OCR local — aucune clé requise';
-  if (!window.Tesseract) { renderValidationDemo(); return; }
+  if (!window.Tesseract) { showToast('Tesseract non chargé — rechargez la page', 'error'); renderValidationDemo(); return; }
   const { data: { text } } = await Tesseract.recognize(
     'data:image/jpeg;base64,' + b64, 'fra+eng',
     { logger: m => { if (m.status === 'recognizing text' && statusEl) statusEl.textContent = 'OCR ' + Math.round(m.progress * 100) + '%…'; } }
@@ -1963,6 +1966,7 @@ function renderValidationDemo() {
 
 function renderValidation(data) {
   document.getElementById('val-store-badge').textContent = data.store || 'Magasin inconnu';
+  document.getElementById('val-date').value = data.date || new Date().toISOString().slice(0, 10);
   const body = document.getElementById('val-body');
   let items = data.items || [];
   body.innerHTML = `
@@ -2009,12 +2013,12 @@ function renderValItem(item, i) {
     </div>
     <div class="val-edit">
       <div class="val-fields">
-        <div class="val-field val-field-full"><label>Nom du produit</label><input type="text" value="${item.name}" onchange="updateItem(${i},'name',this.value)"></div>
-        <div class="val-field"><label>Catégorie</label><select onchange="updateItem(${i},'category',this.value)">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nettoyage & maison','Santé & pharmacie','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
-        <div class="val-field"><label>Prix ($)</label><input type="number" step="0.01" value="${item.price}" onchange="updateItem(${i},'price',parseFloat(this.value))"></div>
-        <div class="val-field"><label>Quantité</label><input type="number" step="1" min="1" value="${item.qty || 1}" onchange="updateItem(${i},'qty',parseInt(this.value))"></div>
-        <div class="val-field"><label>Unité / Format</label><input type="text" value="${item.unit || 'unité'}" onchange="updateItem(${i},'unit',this.value)"></div>
-        <div class="val-field"><label>Poids (g)</label><input type="number" step="1" value="${item.weight_g || ''}" placeholder="ex: 454" onchange="updateItem(${i},'weight_g',parseInt(this.value)||null)"></div>
+        <div class="val-field val-field-full"><label>Nom du produit</label><input data-field="name" type="text" value="${item.name}"></div>
+        <div class="val-field"><label>Catégorie</label><select data-field="category">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nettoyage & maison','Santé & pharmacie','Chocolat & confiseries','Alcool & boissons','Bébé','Loisirs','Quincaillerie','Resto & livraison','Services & abonnements','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
+        <div class="val-field"><label>Prix ($)</label><input data-field="price" type="number" step="0.01" value="${item.price}"></div>
+        <div class="val-field"><label>Quantité</label><input data-field="qty" type="number" step="1" min="1" value="${item.qty || 1}"></div>
+        <div class="val-field"><label>Unité / Format</label><input data-field="unit" type="text" value="${item.unit || 'unité'}"></div>
+        <div class="val-field"><label>Poids (g)</label><input data-field="weight_g" type="number" step="1" value="${item.weight_g || ''}" placeholder="ex: 454"></div>
       </div>
     </div>
   </div>`;
@@ -2024,17 +2028,17 @@ let pendingItems = [];
 function updateItem(idx, field, val) { pendingItems[idx] = { ...(pendingItems[idx] || {}) }; pendingItems[idx][field] = val; }
 
 function confirmReceipt() {
-  const store = document.getElementById('val-store-badge').textContent;
-  const today = new Date().toISOString().slice(0, 10);
-  const items = Array.from(document.querySelectorAll('.val-item')).map((el, i) => {
-    const inputs = el.querySelectorAll('input,select');
+  const store = document.getElementById('val-store-badge').textContent.trim() || 'Magasin inconnu';
+  const today = document.getElementById('val-date')?.value || new Date().toISOString().slice(0, 10);
+  const items = Array.from(document.querySelectorAll('.val-item')).map(el => {
+    const get = f => { const inp = el.querySelector(`[data-field="${f}"]`); return inp ? inp.value : ''; };
     return {
-      name: inputs[0].value,
-      category: inputs[1].value,
-      price: parseFloat(inputs[2].value) || 0,
-      qty: parseInt(inputs[3].value) || 1,
-      unit: inputs[4].value,
-      weight_g: parseInt(inputs[5].value) || null
+      name: get('name'),
+      category: get('category'),
+      price: parseFloat(get('price')) || 0,
+      qty: parseInt(get('qty')) || 1,
+      unit: get('unit') || 'unité',
+      weight_g: parseInt(get('weight_g')) || null
     };
   });
 
