@@ -172,6 +172,10 @@ body{display:flex;flex-direction:column}
 .gv-price{font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--text);flex-shrink:0}
 .gv-store{font-size:10px;color:var(--text3);flex-shrink:0;max-width:70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gv-chevron{font-size:9px;color:var(--text3);flex-shrink:0;margin-left:2px}
+.gv-dissocier{font-size:9px;padding:2px 5px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;flex-shrink:0;white-space:nowrap}
+.gv-dissocier:hover{background:var(--bg3);color:var(--red)}
+.pcard-regrouper{font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;margin-top:2px;display:inline-block}
+.pcard-regrouper:hover{background:var(--bg3);color:var(--accent)}
 .gv-hist{margin:0 10px 8px;border-radius:6px;overflow:hidden}
 
 /* ── SCANNER SCREEN ── */
@@ -387,6 +391,7 @@ body{display:flex;flex-direction:column}
       <div class="app-header-title">panier.</div>
       <div class="header-actions">
         <span id="plan-badge" class="free-badge">GRATUIT</span>
+        <div class="icon-btn" onclick="openManualEntry()" title="Saisie manuelle">✏️</div>
         <div class="icon-btn" onclick="showScreen('profile')">👤</div>
       </div>
     </div>
@@ -728,7 +733,8 @@ async function sbSaveTransactions(items, store, date) {
     });
   } catch(e) {
     console.warn('sbSaveTransactions:', e.message);
-    showToast('Sauvegarde cloud partielle — données locales OK', '');
+    // Will be re-enqueued by caller via enqueuePending
+    throw e;
   }
 }
 
@@ -739,6 +745,46 @@ async function sbCommunityPrices(productName, region) {
     if (region) url += `&region=eq.${region}`;
     return await sbFetch(url, { prefer: 'return=representation' });
   } catch { return []; }
+}
+
+// ── File d'attente offline ─────────────────
+let pendingQueue = JSON.parse(localStorage.getItem('panier_queue') || '[]');
+function savePendingQueue() { localStorage.setItem('panier_queue', JSON.stringify(pendingQueue)); }
+function enqueuePending(items, store, date) {
+  pendingQueue.push({ items, store, date, ts: Date.now() });
+  savePendingQueue();
+}
+async function flushPendingQueue() {
+  if (!SB_USER_ID || !pendingQueue.length) return;
+  const toFlush = [...pendingQueue];
+  pendingQueue = [];
+  savePendingQueue();
+  let flushed = 0;
+  for (const entry of toFlush) {
+    try {
+      await sbSaveTransactions(entry.items, entry.store, entry.date);
+      flushed += entry.items.length;
+    } catch(e) {
+      pendingQueue.push(entry); // re-enqueue on failure
+      savePendingQueue();
+    }
+  }
+  if (flushed > 0) showToast(`${flushed} transaction${flushed > 1 ? 's' : ''} offline synchronisée${flushed > 1 ? 's' : ''} ✓`, 'success');
+}
+
+// ── Dissocier / regrouper variantes ──────
+let pinnedSolo = new Set(JSON.parse(localStorage.getItem('panier_solo') || '[]'));
+function pinSolo(name) {
+  pinnedSolo.add(name);
+  localStorage.setItem('panier_solo', JSON.stringify([...pinnedSolo]));
+  activeGroupKey = null; activeCard = null;
+  renderSearch();
+}
+function unpinSolo(name) {
+  pinnedSolo.delete(name);
+  localStorage.setItem('panier_solo', JSON.stringify([...pinnedSolo]));
+  activeCard = null;
+  renderSearch();
 }
 
 const CAT_ICONS={'Fruits & légumes':'🥦','Laitiers & œufs':'🥛','Épicerie':'🥫','Viandes & poissons':'🥩','Boulangerie':'🍞','Surgelés':'❄️','Nourriture chien':'🐶','Nettoyage & maison':'🧹','Santé & pharmacie':'💊','Chocolat & confiseries':'🍫','Alcool & boissons':'🍷','Bébé':'🍼','Loisirs':'🎮','Quincaillerie':'🔧','Resto & livraison':'🍽️','Services & abonnements':'📱','Autre':'📦'};
@@ -1050,6 +1096,7 @@ async function initDB() {
   if (SB_USER_ID) {
     showSyncIndicator(true);
     await sbLoadTransactions();
+    await flushPendingQueue();
     showSyncIndicator(false);
   }
 
@@ -1083,9 +1130,16 @@ function getProductGroup(name, cat) {
   const words = norm(name).trim().split(/\s+/).filter(Boolean);
   if (!words.length) return (cat || '') + ':' + name;
   let base = [words[0]];
-  // Absorb one connector + noun for compound product names (e.g. "beurre d'arachide", "jus de pomme")
-  if (words.length > 2 && CONNECTORS.has(words[1])) {
-    base.push(words[1], words[2]);
+  if (words.length > 1) {
+    if (CONNECTORS.has(words[1]) && words.length > 2) {
+      // "beurre d'arachide", "jus de pomme" \u2192 absorb connector + noun
+      base.push(words[1], words[2]);
+      // Keep numeric qualifier after compound: "cr\u00e8me de tartre 125g" \u2192 "creme de tartre 125"
+      if (words.length > 3 && /\d/.test(words[3])) base.push(words[3]);
+    } else if (/\d/.test(words[1])) {
+      // "Lait 2%", "Lait 3.25%" \u2192 the number IS the qualifier, keep it to avoid false merge
+      base.push(words[1]);
+    }
   }
   return (cat || '') + ':' + base.join(' ');
 }
@@ -1093,7 +1147,8 @@ function getProductGroup(name, cat) {
 function buildGroupedProds(prods) {
   const groups = {};
   prods.forEach(p => {
-    const key = getProductGroup(p.name, p.cat || '');
+    // Products pinned solo skip grouping entirely
+    const key = pinnedSolo.has(p.name) ? '__solo__:' + p.name : getProductGroup(p.name, p.cat || '');
     if (!groups[key]) groups[key] = { key, variants: [], cat: p.cat };
     groups[key].variants.push(p);
   });
@@ -1331,6 +1386,7 @@ function renderPCard(p) {
         ${price100gStr ? '<div class="pcard-price100">' + price100gStr + '</div>' : ''}
         <div class="pcard-store">${p.dernier_magasin}</div>
         <span class="trend ${tc}">${arr} ${tl}</span>
+        ${pinnedSolo.has(p.name) ? `<button class="pcard-regrouper" onclick="event.stopPropagation();unpinSolo('${nameEsc.replace(/'/g,"\\'")}')">↗ Regrouper</button>` : ''}
       </div>
     </div>${detail}</div>`;
 }
@@ -1364,6 +1420,7 @@ function renderGroupCard(g) {
         '<span class="gv-meta">' + v.n + ' achat' + (v.n > 1 ? 's' : '') + '</span>' +
         '<span class="gv-price">$' + v.dernier_prix.toFixed(2) + '</span>' +
         '<span class="gv-store">' + v.dernier_magasin + '</span>' +
+        '<button class="gv-dissocier" onclick="event.stopPropagation();pinSolo(\'' + nameEsc.replace(/'/g,'\\\'') + '\')">✕ Dissocier</button>' +
         '<span class="gv-chevron">' + (vOpen ? '▲' : '▼') + '</span>' +
         '</div>';
       if (vOpen && v.historique && v.historique.length) {
@@ -1735,6 +1792,7 @@ function enterApp() {
   document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
   renderProfile();
   switchTab('search');
+  if (SB_USER_ID) flushPendingQueue();
 }
 
 // ══════════════════════════════════════════
@@ -2027,6 +2085,15 @@ function renderValItem(item, i) {
 let pendingItems = [];
 function updateItem(idx, field, val) { pendingItems[idx] = { ...(pendingItems[idx] || {}) }; pendingItems[idx][field] = val; }
 
+function openManualEntry() {
+  const today = new Date().toISOString().slice(0, 10);
+  renderValidation({
+    store: 'Magasin inconnu',
+    date: today,
+    items: [{ raw: '', name: '', category: 'Épicerie', qty: 1, unit: 'unité', price: 0, weight_g: null, confidence: 1 }]
+  });
+}
+
 function confirmReceipt() {
   const store = document.getElementById('val-store-badge').textContent.trim() || 'Magasin inconnu';
   const today = document.getElementById('val-date')?.value || new Date().toISOString().slice(0, 10);
@@ -2111,7 +2178,7 @@ function confirmReceipt() {
   switchTab('search');
 
   // Supabase: sauvegarder les transactions en arrière-plan
-  if (SB_USER_ID && added > 0) {
+  if (added > 0) {
     const itemsToSave = items.filter(item => item.name && item.price > 0).map(item => ({
       name: item.name,
       category: item.category,
@@ -2120,10 +2187,19 @@ function confirmReceipt() {
       weight_g: item.weight_g || null,
       p100g: item.weight_g ? parseFloat(((item.price / Math.max(item.qty, 1) / item.weight_g) * 100).toFixed(4)) : null
     }));
-    sbSaveTransactions(itemsToSave, store, today).then(() => {
-      showSyncIndicator(false);
-    });
-    showSyncIndicator(true);
+    if (SB_USER_ID) {
+      showSyncIndicator(true);
+      sbSaveTransactions(itemsToSave, store, today).then(() => {
+        showSyncIndicator(false);
+      }).catch(() => {
+        showSyncIndicator(false);
+        enqueuePending(itemsToSave, store, today);
+        showToast('Hors ligne — sauvegardé localement, sync auto à la reconnexion', '');
+      });
+    } else {
+      // Not logged in: queue for when user logs in
+      enqueuePending(itemsToSave, store, today);
+    }
   }
 }
 
