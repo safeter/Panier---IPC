@@ -213,8 +213,11 @@ body{display:flex;flex-direction:column}
 .val-proc-text{font-size:14px;color:var(--text2);text-align:center;line-height:1.6}
 .val-proc-sub{font-size:12px;color:var(--text3);text-align:center}
 
-.val-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.val-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:opacity .2s}
+.val-item.removing{opacity:0}
 .val-item-top{padding:12px 13px;display:flex;align-items:center;gap:10px}
+.val-delete{background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:4px 6px;border-radius:4px;flex-shrink:0;line-height:1}
+.val-delete:hover{color:var(--red);background:var(--red-dim)}
 .val-status{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer}
 .val-status.ok{background:var(--green-dim);color:var(--green)}
 .val-status.bad{background:var(--red-dim);color:var(--red)}
@@ -565,8 +568,8 @@ body{display:flex;flex-direction:column}
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 let CLAUDE_KEY = localStorage.getItem('panier_claude_key') || '';
 
-// Propriétaires — accès Pro permanent sans passer par la DB
-const OWNER_EMAILS = ['pascaldu723@gmail.com'];
+// Accès Pro géré via profiles.is_pro dans Supabase (pas d'email hardcodé)
+const OWNER_EMAILS = [];
 
 // ══════════════════════════════════════════
 // MODULE 5 — Supabase Backend
@@ -659,18 +662,22 @@ async function sbLoadTransactions() {
       `/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=*&order=date.asc&limit=2000`
     );
     if (!rows || !rows.length) return;
-    // Retirer du DB les produits couverts par Supabase (évite le double-comptage avec le Sheet)
     const sbProducts = new Set(rows.map(r => r.product_name).filter(Boolean));
     sbProducts.forEach(name => { delete DB[name]; });
-    // Reconstruire depuis les transactions Supabase
     rows.forEach(tx => ingestTransaction(tx));
+    // Mettre à jour le cache local avec les données Supabase (la source la plus complète)
+    sbProducts.forEach(name => { if (DB[name]) localUserDB[name] = JSON.parse(JSON.stringify(DB[name])); });
+    saveLocalUserDB();
   } catch(e) { console.warn('sbLoadTransactions', e.message); }
 }
 
 /** Ingère une transaction dans le cache DB local (même logique que confirmReceipt) */
 function ingestTransaction(tx) {
-  const { product_name: name, category, unit, price, weight_g, store, date: d, region } = tx;
-  if (!name || !price) return;
+  const { product_name: rawName, category, unit, price, weight_g, store: rawStore, date: d, region } = tx;
+  if (!rawName || !price) return;
+  // Normalize: trim whitespace, collapse spaces; preserve original casing for display
+  const name = rawName.trim().replace(/\s+/g, ' ');
+  const store = (rawStore || '').trim().replace(/\s+/g, ' ');
   const p100g = weight_g ? parseFloat(((price / weight_g) * 100).toFixed(4)) : null;
   const histEntry = { d, m: store, p: price, region: region || null };
   if (weight_g) histEntry.g = weight_g;
@@ -726,18 +733,16 @@ async function sbSaveTransactions(items, store, date) {
     is_shared: communityShareEnabled || false
   }));
   const postOpts = { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } };
-  try {
-    await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) });
-  } catch(e) {
-    // Colonnes optionnelles absentes du schéma → réessayer avec colonnes de base seulement
-    console.warn('sbSaveTransactions (tentative 1):', e.message);
-    const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
-    try {
-      await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) });
-    } catch(e2) {
-      console.warn('sbSaveTransactions (tentative 2):', e2.message);
-      throw e2;
-    }
+  // Tentative 1 : colonnes complètes
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) }); return; } catch(e) { console.warn('sbSave T1:', e.message); }
+  // Tentative 2 : sans colonnes optionnelles (price_per_100g, region, is_shared)
+  const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) }); return; } catch(e) { console.warn('sbSave T2:', e.message); }
+  // Tentative 3 : colonnes minimales absolues (user_id, product_name, price, store, date)
+  const minRows = rows.map(r => ({ user_id: r.user_id, product_name: r.product_name, price: r.price, store: r.store, date: r.date }));
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(minRows) }); return; } catch(e) {
+    console.warn('sbSave T3:', e.message);
+    throw e;
   }
 }
 
@@ -752,6 +757,16 @@ async function sbCommunityPrices(productName, region) {
 
 // ── File d'attente offline ─────────────────
 let pendingQueue = JSON.parse(localStorage.getItem('panier_queue') || '[]');
+
+// ── Cache local permanent (survit aux refresh sans Supabase) ──────────────
+let localUserDB = {};
+try { localUserDB = JSON.parse(localStorage.getItem('panier_local_db') || '{}'); } catch(e) { localUserDB = {}; }
+function saveLocalUserDB() {
+  try { localStorage.setItem('panier_local_db', JSON.stringify(localUserDB)); } catch(e) { console.warn('localStorage plein:', e.message); }
+}
+function markUserProduct(name) {
+  if (DB[name]) { localUserDB[name] = JSON.parse(JSON.stringify(DB[name])); saveLocalUserDB(); }
+}
 function savePendingQueue() { localStorage.setItem('panier_queue', JSON.stringify(pendingQueue)); }
 function enqueuePending(items, store, date) {
   pendingQueue.push({ items, store, date, ts: Date.now() });
@@ -891,6 +906,7 @@ function computeIPC() {
 function renderIPCChart(ipc) {
   if (!ipc) return '';
   const data = ipc.monthlyData;
+  if (!data || data.length < 2) return '';
   const values = data.map(d => d.index);
   const minV = Math.min(...values) - 2;
   const maxV = Math.max(...values) + 2;
@@ -1116,11 +1132,14 @@ async function initDB() {
     } catch(e) { DB = {}; }
   }
 
-  // 2. Afficher immédiatement les items sauvés localement (hors-ligne / invité)
-  //    Ils seront écrasés par Supabase si une version plus récente existe là-bas
+  // 2. Superposer le cache local permanent (données utilisateur sauvegardées dans localStorage)
+  //    Garantit que les données perso survivent au refresh même sans réseau
+  if (Object.keys(localUserDB).length) Object.assign(DB, localUserDB);
+
+  // 3. Items de la file d'attente offline (non encore synchros)
   applyPendingToDB();
 
-  // 3. Fusionner les transactions Supabase par-dessus (si connecté)
+  // 4. Fusionner les transactions Supabase (source la plus complète si disponible)
   if (SB_USER_ID) {
     showSyncIndicator(true);
     await sbLoadTransactions();
@@ -1162,14 +1181,17 @@ function getProductGroup(name, cat) {
     if (CONNECTORS.has(words[1]) && words.length > 2) {
       // "beurre d'arachide", "jus de pomme" \u2192 absorb connector + noun
       base.push(words[1], words[2]);
-      // Keep numeric qualifier after compound: "cr\u00e8me de tartre 125g" \u2192 "creme de tartre 125"
-      if (words.length > 3 && /\d/.test(words[3])) base.push(words[3]);
-    } else if (/\d/.test(words[1])) {
-      // "Lait 2%", "Lait 3.25%" \u2192 the number IS the qualifier, keep it to avoid false merge
+      // Qualificateur purement num\u00e9rique apr\u00e8s le compos\u00e9 : "cr\u00e8me de tartre 2" \u2192 ok
+      // Qualificateur de format (170g, 1kg\u2026) \u2192 ignor\u00e9
+      if (words.length > 3 && /^\d+$/.test(words[3])) base.push(words[3]);
+    } else if (/^\d+$/.test(words[1])) {
+      // Nombre pur = qualificateur produit : "Lait 2" (Lait 2%), "Lait 3" (Lait 3.25%)
+      // "170g", "1kg", "500ml" \u2192 contiennent des lettres \u2192 ignor\u00e9s \u2192 Framboises 170g \u2261 Framboises
       base.push(words[1]);
     }
   }
-  return (cat || '') + ':' + base.join(' ');
+  // Clé sans catégorie → permet le grouping cross-catégorie (ex: Framboises + Framboises congelées)
+  return base.join(' ');
 }
 
 function buildGroupedProds(prods) {
@@ -1190,11 +1212,8 @@ function buildGroupedProds(prods) {
     const normName = norm(p.name);
     for (const mk of multiKeys) {
       if (!groups[mk]) continue;
-      const base = mk.split(':').slice(1).join(':'); // strip cat prefix
-      if (base.length < 3) continue;
-      if (groups[mk].cat !== (p.cat || '')) continue;
-      // Check base appears as a whole word (or word sequence) inside normName
-      const re = new RegExp('\\b' + base.replace(/\s+/g, '\\s+') + '\\b');
+      if (mk.length < 3) continue;
+      const re = new RegExp('\\b' + mk.replace(/\s+/g, '\\s+') + '\\b');
       if (re.test(normName)) {
         groups[mk].variants.push(p);
         delete groups[k];
@@ -1236,7 +1255,7 @@ function buildGroupedProds(prods) {
     const maxScore = Math.max(...all.map(v => v._s || 0));
     return {
       name: shortestName,
-      cat: g.cat,
+      cat: all[0].cat, // catégorie de la variante la plus achetée
       n: totalN,
       min: minPrice, max: maxPrice, moy: moyPrice,
       dernier_prix: lastVariant.dernier_prix,
@@ -1388,8 +1407,9 @@ function renderPCard(p) {
       detail += `<div class="sec-title">Historique${!showFull ? ' (3 derniers)' : ''}</div>`;
       detail += `<div class="${showFull ? 'hist-rows' : 'hist-rows locked-overlay'}">`;
       hist.forEach((h, idx) => {
-        // Module 4: détecter shrinkflation dans l'historique
-        const shrinkFlag = h.g && idx > 0 ? '⚠️' : '';
+        // Shrinkflation: poids actuel < poids de l'achat précédent (plus ancien = idx+1 dans l'array inversé)
+        const prevG = hist[idx + 1]?.g;
+        const shrinkFlag = (h.g && prevG && h.g < prevG) ? '⚠️' : '';
         const p100g = h.g ? computePrice100g(h.p, `${h.g}g`) : null;
         const p100gDisplay = p100g ? `<span class="hist-100g">${p100g.toFixed(2)}$/100g</span>` : '';
         detail += `<div class="hist-r"><span class="hist-d">${h.d}</span><span class="hist-s">${h.m}${shrinkFlag}</span><span class="hist-p">$${h.p.toFixed(2)}${p100gDisplay}</span></div>`;
@@ -1652,9 +1672,11 @@ function renderProfile() {
     <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="document.getElementById('json-import-input').value='';document.getElementById('json-import-input').click()"><div class="menu-item-icon">📥</div><div class="menu-item-text"><div class="menu-item-title">Importer un reçu JSON</div><div class="menu-item-sub">Fusionner un fichier reçu avec votre historique</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="runSbDiag()"><div class="menu-item-icon">🔗</div><div class="menu-item-text"><div class="menu-item-title">Tester la connexion cloud</div><div class="menu-item-sub" id="sb-diag-sub">${SB_USER_ID ? 'Connecté · appuyer pour tester Supabase' : 'Non connecté — données locales seulement'}</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
+    <div class="menu-item" onclick="installApp()"><div class="menu-item-icon">📲</div><div class="menu-item-text"><div class="menu-item-title">Installer l'application</div><div class="menu-item-sub">Android · iOS · partagez le lien à votre conjointe</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="openJournalModal()"><div class="menu-item-icon">📋</div><div class="menu-item-text"><div class="menu-item-title">Journal des achats</div><div class="menu-item-sub">Toutes vos transactions · export CSV / Excel</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="openApikeyModal()"><div class="menu-item-icon">🔑</div><div class="menu-item-text"><div class="menu-item-title">Clé API Claude</div><div class="menu-item-sub">${keyStatus}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="showToast('Panier v0.3.0 — Journal · API Claude · Export XLS')"><div class="menu-item-icon">ℹ️</div><div class="menu-item-text"><div class="menu-item-title">À propos</div><div class="menu-item-sub">Panier v0.3.0</div></div><div class="menu-item-arrow">›</div></div>
@@ -1662,6 +1684,37 @@ function renderProfile() {
     <div class="menu-item danger" onclick="doLogout()"><div class="menu-item-icon">🚪</div><div class="menu-item-text"><div class="menu-item-title">Déconnexion</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div style="height:20px"></div>`;
+}
+
+async function runSbDiag() {
+  const sub = document.getElementById('sb-diag-sub');
+  if (!SB_USER_ID) { showToast('Non connecté — créez un compte pour synchroniser entre appareils', ''); return; }
+  if (sub) sub.textContent = 'Test en cours…';
+  try {
+    // Test lecture
+    const rows = await sbFetch(`/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=id,product_name,date&order=date.desc&limit=3`);
+    const count = rows ? rows.length : 0;
+    // Test écriture (ligne test immédiatement supprimée)
+    let writeOk = false;
+    try {
+      const testRow = [{ user_id: SB_USER_ID, product_name: '__diag_test__', price: 0.01, store: 'test', date: new Date().toISOString().slice(0,10) }];
+      const inserted = await sbFetch('/rest/v1/transactions', { method: 'POST', prefer: 'return=representation', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(testRow) });
+      if (inserted && inserted[0] && inserted[0].id) {
+        await sbFetch(`/rest/v1/transactions?id=eq.${inserted[0].id}`, { method: 'DELETE' });
+      }
+      writeOk = true;
+    } catch(we) { console.warn('diag write:', we.message); }
+    const msg = writeOk
+      ? `✓ Supabase OK · ${count} transaction${count !== 1 ? 's' : ''} sauvegardée${count !== 1 ? 's' : ''}`
+      : `⚠ Lecture OK (${count} lignes) mais écriture bloquée — vérifiez les permissions Supabase`;
+    if (sub) sub.textContent = msg;
+    showToast(msg, writeOk ? 'success' : '');
+    if (writeOk && count === 0) showToast('Aucune transaction dans Supabase — les données restent locales pour l\'instant', '');
+  } catch(e) {
+    const msg = '✗ Supabase inaccessible: ' + e.message;
+    if (sub) sub.textContent = msg;
+    showToast(msg, 'error');
+  }
 }
 
 // ══════════════════════════════════════════
@@ -1779,6 +1832,7 @@ function handleJSONImport(e) {
       }
 
       itemsToSave.push({ name: item.name, category: item.category || 'Épicerie', unit: item.unit || 'unité', unitPrice, weight_g, p100g });
+      markUserProduct(item.name);
       added++;
     });
 
@@ -1815,8 +1869,14 @@ async function tryRestoreSession() {
   const sess = JSON.parse(localStorage.getItem('panier_sb_session') || 'null');
   if (!sess || !sess.access_token) return false;
   // Vérifier si le token est encore valide (exp en secondes)
-  const payload = JSON.parse(atob(sess.access_token.split('.')[1]));
-  if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('panier_sb_session'); return false; }
+  // JWTs use base64url (- _ no padding) — convert before atob()
+  let payload;
+  try {
+    const b64 = sess.access_token.split('.')[1] || '';
+    const std = b64.replace(/-/g, '+').replace(/_/g, '/').padEnd(b64.length + (4 - b64.length % 4) % 4, '=');
+    payload = JSON.parse(atob(std));
+  } catch(e) { localStorage.removeItem('panier_sb_session'); return false; }
+  if (!payload || payload.exp * 1000 < Date.now()) { localStorage.removeItem('panier_sb_session'); return false; }
   SB_TOKEN = sess.access_token;
   SB_USER_ID = sess.user.id;
   const profile = await sbLoadProfile(SB_USER_ID);
@@ -1892,7 +1952,10 @@ async function doLogout() {
   await sbSignOut();
   currentUser = null; isPro = false; userRegion = '';
   localStorage.removeItem('panier_sb_session');
+  localUserDB = {}; localStorage.removeItem('panier_local_db');
+  pendingQueue = []; localStorage.removeItem('panier_queue');
   DB = {};
+  renderSearch(); renderDash();
   document.getElementById('screen-app').style.display = 'none';
   document.getElementById('screen-auth').classList.add('active');
   document.getElementById('screen-auth').style.display = 'flex';
@@ -1908,7 +1971,7 @@ function enterApp() {
   document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
   renderProfile();
   switchTab('search');
-  if (SB_USER_ID) flushPendingQueue();
+  if (SB_USER_ID) flushPendingQueue().catch(e => console.warn('flushPendingQueue:', e.message));
 }
 
 // ══════════════════════════════════════════
@@ -2184,6 +2247,7 @@ function renderValItem(item, i) {
         ${price100gDisplay}
         <div class="val-qty">qté: ${item.qty || 1}</div>
       </div>
+      <button class="val-delete" title="Supprimer cet article" onclick="event.stopPropagation();removeValItem(this)">✕</button>
     </div>
     <div class="val-edit">
       <div class="val-fields">
@@ -2196,6 +2260,18 @@ function renderValItem(item, i) {
       </div>
     </div>
   </div>`;
+}
+
+function removeValItem(btn) {
+  const item = btn.closest('.val-item');
+  if (!item) return;
+  item.classList.add('removing');
+  setTimeout(() => {
+    item.remove();
+    const remaining = document.querySelectorAll('.val-item').length;
+    const confirmBtn = document.querySelector('.btn-confirm');
+    if (confirmBtn) confirmBtn.innerHTML = `<span>✓</span> Confirmer ${remaining} item${remaining !== 1 ? 's' : ''}`;
+  }, 200);
 }
 
 function openManualEntry() {
@@ -2213,11 +2289,11 @@ function confirmReceipt() {
   const items = Array.from(document.querySelectorAll('.val-item')).map(el => {
     const get = f => { const inp = el.querySelector(`[data-field="${f}"]`); return inp ? inp.value : ''; };
     return {
-      name: get('name'),
+      name: get('name').trim().replace(/\s+/g, ' '),
       category: get('category'),
       price: parseFloat(get('price')) || 0,
       qty: parseInt(get('qty')) || 1,
-      unit: get('unit') || 'unité',
+      unit: get('unit').trim() || 'unité',
       weight_g: parseInt(get('weight_g')) || null
     };
   });
@@ -2283,6 +2359,7 @@ function confirmReceipt() {
         }
       }
     }
+    markUserProduct(item.name);
     added++;
   });
 
@@ -2338,8 +2415,34 @@ function saveClaudeKey() {
 }
 
 // ── Journal des achats ──────────────────────────────────────
+const JOURNAL_PAGE = 100;
+
+function renderJournalUpTo(rows, limit) {
+  const page = rows.slice(0, limit);
+  const remaining = rows.length - page.length;
+  const rowHtml = page.map(r => {
+    const p100g = r.price_per_100g ? '<span style="font-size:11px;color:var(--text3);margin-left:6px">' + r.price_per_100g.toFixed(2) + '$/100g</span>' : '';
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
+      + '<div><div style="font-size:14px;font-weight:600">' + (r.product_name || r.name || '') + '</div>'
+      + '<div style="font-size:12px;color:var(--text2)">' + (r.date || r.d || '') + ' · ' + (r.store || r.m || '') + '</div></div>'
+      + '<div style="text-align:right"><div style="font-size:15px;font-weight:700">$' + ((r.price || r.p || 0).toFixed(2)) + '</div>' + p100g + '</div>'
+      + '</div>';
+  }).join('');
+  const more = remaining > 0
+    ? `<button onclick="loadMoreJournal()" style="width:100%;margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:13px">Voir ${Math.min(remaining, JOURNAL_PAGE)} de plus (${remaining} restants)</button>`
+    : '';
+  return rowHtml + more;
+}
+
+function loadMoreJournal() {
+  const rows = window._journalRows || [];
+  window._journalOffset = (window._journalOffset || JOURNAL_PAGE) + JOURNAL_PAGE;
+  document.getElementById('journal-list').innerHTML = renderJournalUpTo(rows, window._journalOffset);
+}
+
 async function openJournalModal() {
   document.getElementById('journal-modal').classList.add('open');
+  window._journalOffset = 0;
   const el = document.getElementById('journal-list');
   el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Chargement…</div>';
   try {
@@ -2349,14 +2452,8 @@ async function openJournalModal() {
     const rows = src && src.length ? src : buildJournalFromDB();
     if (!rows.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Aucune transaction</div>'; return; }
     window._journalRows = rows;
-    el.innerHTML = rows.map(r => {
-      const p100g = r.price_per_100g ? '<span style="font-size:11px;color:var(--text3);margin-left:6px">' + r.price_per_100g.toFixed(2) + '$/100g</span>' : '';
-      return '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
-        + '<div><div style="font-size:14px;font-weight:600">' + (r.product_name || r.name || '') + '</div>'
-        + '<div style="font-size:12px;color:var(--text2)">' + (r.date || r.d || '') + ' · ' + (r.store || r.m || '') + '</div></div>'
-        + '<div style="text-align:right"><div style="font-size:15px;font-weight:700">$' + ((r.price || r.p || 0).toFixed(2)) + '</div>' + p100g + '</div>'
-        + '</div>';
-    }).join('');
+    window._journalOffset = JOURNAL_PAGE;
+    el.innerHTML = renderJournalUpTo(rows, JOURNAL_PAGE);
   } catch(e) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--red)">Erreur: ' + e.message + '</div>'; }
 }
 function closeJournalModal() { document.getElementById('journal-modal').classList.remove('open'); }
@@ -2487,6 +2584,27 @@ function showToast(msg, type = '') {
 }
 </script>
 <script>
+// ── PWA Install prompt ───────────────────────────────────────
+let _installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _installPrompt = e; });
+
+function installApp() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInApp = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  if (isInApp) { showToast('Application déjà installée ✓', 'success'); return; }
+  if (_installPrompt) {
+    _installPrompt.prompt();
+    _installPrompt.userChoice.then(r => {
+      if (r.outcome === 'accepted') showToast('Installation en cours… ✓', 'success');
+      _installPrompt = null;
+    });
+  } else if (isIOS) {
+    showToast('Sur Safari: appuie sur ↑ Partager → "Sur l\'écran d\'accueil"', '');
+  } else {
+    showToast('Dans Chrome: menu ⋮ → "Installer l\'application" ou "Ajouter à l\'écran d\'accueil"', '');
+  }
+}
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
   navigator.serviceWorker.addEventListener("message", e => {
