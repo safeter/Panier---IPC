@@ -439,6 +439,7 @@ body{display:flex;flex-direction:column}
       </div>
       <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
       <input type="file" id="pdf-input" accept=".pdf,application/pdf,application/x-pdf" style="display:none" onchange="handlePdfUpload(event)">
+      <input type="file" id="json-import-input" accept=".json,application/json" style="display:none" onchange="handleJSONImport(event)">
     </div>
   </div>
 
@@ -1650,6 +1651,7 @@ function renderProfile() {
     ${communityRow}
     <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="document.getElementById('json-import-input').value='';document.getElementById('json-import-input').click()"><div class="menu-item-icon">📥</div><div class="menu-item-text"><div class="menu-item-title">Importer un reçu JSON</div><div class="menu-item-sub">Fusionner un fichier reçu avec votre historique</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
@@ -1708,6 +1710,93 @@ async function exportCSV() {
   a.href = url; a.download = `panier_${new Date().toISOString().slice(0,10)}.csv`; a.click();
   URL.revokeObjectURL(url);
   showToast(`Export CSV — ${rows.length - 1} transactions ✓`, 'success');
+}
+
+function handleJSONImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => {
+    let receipt;
+    try {
+      receipt = JSON.parse(evt.target.result);
+    } catch {
+      showToast('Fichier JSON invalide', 'error');
+      return;
+    }
+    const store = receipt.store || 'Magasin inconnu';
+    const date  = receipt.date  || new Date().toISOString().slice(0, 10);
+    const items = Array.isArray(receipt.items) ? receipt.items : [];
+    if (!items.length) { showToast('Aucun item trouvé dans le fichier', 'error'); return; }
+
+    let added = 0;
+    const itemsToSave = [];
+
+    items.forEach(item => {
+      if (!item.name) return;
+      const unitPrice = item.price_per_unit != null
+        ? parseFloat(item.price_per_unit)
+        : parseFloat(item.price) / Math.max(parseInt(item.qty) || 1, 1);
+      if (!unitPrice || isNaN(unitPrice) || unitPrice <= 0) return;
+
+      const weight_g = parseInt(item.weight_g) || null;
+      const p100g = weight_g ? parseFloat(((unitPrice / weight_g) * 100).toFixed(4)) : null;
+      const histEntry = { d: date, m: store, p: unitPrice, region: userRegion || null };
+      if (weight_g) histEntry.g = weight_g;
+      if (p100g)   histEntry.p100g = p100g;
+
+      if (!DB[item.name]) {
+        DB[item.name] = {
+          cat: item.category || 'Épicerie',
+          unite: item.unit || 'unité',
+          dernier_prix: unitPrice, dernier_magasin: store, dernier_date: date,
+          min: unitPrice, max: unitPrice, moy: unitPrice, n: 1,
+          trend: 'stable', trend_pct: 0,
+          magasins: { [store]: { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 } },
+          historique: [histEntry]
+        };
+      } else {
+        const d = DB[item.name];
+        d.historique.push(histEntry);
+        d.n++; d.dernier_prix = unitPrice; d.dernier_magasin = store; d.dernier_date = date;
+        d.min = Math.min(d.min, unitPrice); d.max = Math.max(d.max, unitPrice);
+        const prices = d.historique.map(h => h.p);
+        d.moy = parseFloat((prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2));
+        if (prices.length >= 4) {
+          const f = prices.slice(0, 2).reduce((a, b) => a + b) / 2;
+          const l = prices.slice(-2).reduce((a, b) => a + b) / 2;
+          const pct = (l - f) / f * 100;
+          d.trend = pct > 5 ? 'up' : pct < -5 ? 'down' : 'stable';
+          d.trend_pct = parseFloat(pct.toFixed(1));
+        }
+        if (!d.magasins[store]) d.magasins[store] = { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 };
+        else {
+          const ms = d.magasins[store];
+          ms.n++; ms.min = Math.min(ms.min, unitPrice); ms.max = Math.max(ms.max, unitPrice);
+          const storeH = d.historique.filter(h => h.m === store);
+          ms.moy = parseFloat((storeH.reduce((a, h) => a + h.p, 0) / storeH.length).toFixed(2));
+        }
+      }
+
+      itemsToSave.push({ name: item.name, category: item.category || 'Épicerie', unit: item.unit || 'unité', unitPrice, weight_g, p100g });
+      added++;
+    });
+
+    renderSearch(); renderDash(); renderCats();
+    showToast(`${added} item${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''} avec succès ✓`, 'success');
+
+    if (added > 0) {
+      if (SB_USER_ID) {
+        showSyncIndicator(true);
+        sbSaveTransactions(itemsToSave, store, date)
+          .then(() => showSyncIndicator(false))
+          .catch(() => { showSyncIndicator(false); enqueuePending(itemsToSave, store, date); });
+      } else {
+        enqueuePending(itemsToSave, store, date);
+      }
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ══════════════════════════════════════════
