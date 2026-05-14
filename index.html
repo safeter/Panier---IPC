@@ -727,18 +727,16 @@ async function sbSaveTransactions(items, store, date) {
     is_shared: communityShareEnabled || false
   }));
   const postOpts = { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } };
-  try {
-    await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) });
-  } catch(e) {
-    // Colonnes optionnelles absentes du schéma → réessayer avec colonnes de base seulement
-    console.warn('sbSaveTransactions (tentative 1):', e.message);
-    const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
-    try {
-      await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) });
-    } catch(e2) {
-      console.warn('sbSaveTransactions (tentative 2):', e2.message);
-      throw e2;
-    }
+  // Tentative 1 : colonnes complètes
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) }); return; } catch(e) { console.warn('sbSave T1:', e.message); }
+  // Tentative 2 : sans colonnes optionnelles (price_per_100g, region, is_shared)
+  const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) }); return; } catch(e) { console.warn('sbSave T2:', e.message); }
+  // Tentative 3 : colonnes minimales absolues (user_id, product_name, price, store, date)
+  const minRows = rows.map(r => ({ user_id: r.user_id, product_name: r.product_name, price: r.price, store: r.store, date: r.date }));
+  try { await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(minRows) }); return; } catch(e) {
+    console.warn('sbSave T3:', e.message);
+    throw e;
   }
 }
 
@@ -1668,6 +1666,7 @@ function renderProfile() {
     <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="document.getElementById('json-import-input').value='';document.getElementById('json-import-input').click()"><div class="menu-item-icon">📥</div><div class="menu-item-text"><div class="menu-item-title">Importer un reçu JSON</div><div class="menu-item-sub">Fusionner un fichier reçu avec votre historique</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="runSbDiag()"><div class="menu-item-icon">🔗</div><div class="menu-item-text"><div class="menu-item-title">Tester la connexion cloud</div><div class="menu-item-sub" id="sb-diag-sub">${SB_USER_ID ? 'Connecté · appuyer pour tester Supabase' : 'Non connecté — données locales seulement'}</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
@@ -1678,6 +1677,37 @@ function renderProfile() {
     <div class="menu-item danger" onclick="doLogout()"><div class="menu-item-icon">🚪</div><div class="menu-item-text"><div class="menu-item-title">Déconnexion</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div style="height:20px"></div>`;
+}
+
+async function runSbDiag() {
+  const sub = document.getElementById('sb-diag-sub');
+  if (!SB_USER_ID) { showToast('Non connecté — créez un compte pour synchroniser entre appareils', ''); return; }
+  if (sub) sub.textContent = 'Test en cours…';
+  try {
+    // Test lecture
+    const rows = await sbFetch(`/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=id,product_name,date&order=date.desc&limit=3`);
+    const count = rows ? rows.length : 0;
+    // Test écriture (ligne test immédiatement supprimée)
+    let writeOk = false;
+    try {
+      const testRow = [{ user_id: SB_USER_ID, product_name: '__diag_test__', price: 0.01, store: 'test', date: new Date().toISOString().slice(0,10) }];
+      const inserted = await sbFetch('/rest/v1/transactions', { method: 'POST', prefer: 'return=representation', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(testRow) });
+      if (inserted && inserted[0] && inserted[0].id) {
+        await sbFetch(`/rest/v1/transactions?id=eq.${inserted[0].id}`, { method: 'DELETE' });
+      }
+      writeOk = true;
+    } catch(we) { console.warn('diag write:', we.message); }
+    const msg = writeOk
+      ? `✓ Supabase OK · ${count} transaction${count !== 1 ? 's' : ''} sauvegardée${count !== 1 ? 's' : ''}`
+      : `⚠ Lecture OK (${count} lignes) mais écriture bloquée — vérifiez les permissions Supabase`;
+    if (sub) sub.textContent = msg;
+    showToast(msg, writeOk ? 'success' : '');
+    if (writeOk && count === 0) showToast('Aucune transaction dans Supabase — les données restent locales pour l\'instant', '');
+  } catch(e) {
+    const msg = '✗ Supabase inaccessible: ' + e.message;
+    if (sub) sub.textContent = msg;
+    showToast(msg, 'error');
+  }
 }
 
 // ══════════════════════════════════════════
