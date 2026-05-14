@@ -1813,6 +1813,7 @@ function renderProfile() {
     <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="document.getElementById('json-import-input').value='';document.getElementById('json-import-input').click()"><div class="menu-item-icon">📥</div><div class="menu-item-text"><div class="menu-item-title">Importer un reçu JSON</div><div class="menu-item-sub">Fusionner un fichier reçu avec votre historique</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="runSbDiag()"><div class="menu-item-icon">🔗</div><div class="menu-item-text"><div class="menu-item-title">Tester la connexion cloud</div><div class="menu-item-sub" id="sb-diag-sub">${SB_USER_ID ? 'Connecté · appuyer pour tester Supabase' : 'Non connecté — données locales seulement'}</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="pushLocalToSupabase()"><div class="menu-item-icon">☁️</div><div class="menu-item-text"><div class="menu-item-title">Pousser données locales vers cloud</div><div class="menu-item-sub">Synchronise cet appareil → Supabase (sans doublons)</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
@@ -1855,6 +1856,63 @@ async function runSbDiag() {
     if (sub) sub.textContent = msg;
     showToast(msg, 'error');
   }
+}
+
+async function pushLocalToSupabase() {
+  if (!SB_USER_ID) { showToast('Connectez-vous pour synchroniser', 'error'); return; }
+  const sub = document.getElementById('sb-diag-sub');
+  if (sub) sub.textContent = 'Analyse des données locales…';
+
+  // Récupérer les dates déjà dans Supabase pour éviter les doublons
+  let existingKeys = new Set();
+  try {
+    const existing = await sbFetch(`/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=product_name,date,store&limit=5000`);
+    (existing || []).forEach(r => existingKeys.add(`${r.product_name}|${r.date}|${r.store}`));
+  } catch(e) { console.warn('pushLocal fetch existing:', e.message); }
+
+  // Reconstruire les transactions depuis localUserDB.historique
+  const toInsert = [];
+  Object.entries(localUserDB).forEach(([name, d]) => {
+    (d.historique || []).forEach(h => {
+      const key = `${name}|${h.d}|${h.m}`;
+      if (!existingKeys.has(key)) {
+        toInsert.push({
+          user_id: SB_USER_ID,
+          product_name: name,
+          category: d.cat || 'Épicerie',
+          unit: d.unite || 'unité',
+          price: h.p,
+          weight_g: h.g || null,
+          price_per_100g: h.p100g || null,
+          store: h.m || '',
+          date: h.d,
+          region: h.region || userRegion || null
+        });
+      }
+    });
+  });
+
+  if (!toInsert.length) {
+    showToast('Toutes les données locales sont déjà dans Supabase ✓', 'success');
+    if (sub) sub.textContent = 'Données déjà synchronisées';
+    return;
+  }
+
+  if (sub) sub.textContent = `Envoi de ${toInsert.length} transactions…`;
+  // Insérer par lots de 100
+  const BATCH = 100;
+  let sent = 0;
+  for (let i = 0; i < toInsert.length; i += BATCH) {
+    const batch = toInsert.slice(i, i + BATCH);
+    try {
+      await sbFetch('/rest/v1/transactions', { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' }, body: JSON.stringify(batch) });
+      sent += batch.length;
+      if (sub) sub.textContent = `Envoyé ${sent}/${toInsert.length}…`;
+    } catch(e) { console.warn('pushLocal batch:', e.message); }
+  }
+  showToast(`${sent} transaction${sent>1?'s':''} synchronisée${sent>1?'s':''} vers Supabase ✓`, 'success');
+  if (sub) sub.textContent = `✓ ${sent} transactions envoyées`;
+  if (sent > 0) { await sbLoadTransactions(); renderDash(); }
 }
 
 // ══════════════════════════════════════════
