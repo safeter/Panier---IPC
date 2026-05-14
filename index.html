@@ -703,9 +703,10 @@ async function sbLoadTransactions() {
 function ingestTransaction(tx) {
   const { product_name: rawName, category, unit, price, weight_g, store: rawStore, date: d, region } = tx;
   if (!rawName || !price) return;
-  // Normalize: trim whitespace, collapse spaces; preserve original casing for display
   const name = rawName.trim().replace(/\s+/g, ' ');
-  const store = (rawStore || '').trim().replace(/\s+/g, ' ');
+  // Normalize store to title case ("super c" → "Super C", "IGA" → "Iga")
+  const store = (rawStore || '').trim().replace(/\s+/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
   const p100g = weight_g ? parseFloat(((price / weight_g) * 100).toFixed(4)) : null;
   const histEntry = { d, m: store, p: price, region: region || null };
   if (weight_g) histEntry.g = weight_g;
@@ -992,6 +993,38 @@ function renderIPCChart(ipc) {
           return i % step === 0 || i === data.length - 1;
         }).map(d => `<span class="ipc-month-label">${d.month.slice(2)}</span>`).join('')}
       </div>
+    </div>
+  </div>`;
+}
+
+function renderIPCPlaceholder() {
+  // Compte les produits avec ≥2 achats pour donner un feedback précis
+  const eligible = Object.values(localUserDB).filter(d => d.n >= 3 && d.historique?.length >= 3).length;
+  const partial  = Object.values(localUserDB).filter(d => d.n >= 2 && d.historique?.length >= 2).length;
+  const needed = Math.max(0, 3 - partial);
+  const sub = eligible > 0
+    ? 'Achetez ces produits dans un mois différent pour calculer votre IPC'
+    : partial > 0
+      ? `${partial} produit${partial>1?'s':''} avec 2 achats — encore 1 visite pour activer`
+      : `Achetez ${needed > 0 ? needed + ' produit' + (needed>1?'s':'') + ' de plus' : 'les mêmes produits'} lors de votre prochaine visite`;
+  // Fake sparkline pour l'esthétique
+  const pts = [48,46,50,52,49,53,55,51,54,58,55,60].map((y,i) => `${i*27},${65-y}`).join(' ');
+  return `
+  <div class="ipc-chart-wrap">
+    <div class="ipc-chart-card" style="opacity:.55;pointer-events:none">
+      <div class="ipc-chart-header">
+        <div>
+          <div class="ipc-chart-title">IPC Personnel</div>
+          <div class="ipc-chart-sub">${sub}</div>
+        </div>
+        <div class="ipc-chart-val">
+          <div class="ipc-chart-pct" style="color:var(--text3)">—</div>
+          <div class="ipc-chart-base">données insuffisantes</div>
+        </div>
+      </div>
+      <svg viewBox="0 0 300 65" preserveAspectRatio="none" style="height:65px;width:100%">
+        <polyline points="${pts}" fill="none" stroke="var(--border2)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
+      </svg>
     </div>
   </div>`;
 }
@@ -1690,7 +1723,7 @@ function renderDash() {
     </div>
   </div>
   ${storesBars}
-  ${ipc ? renderIPCChart(ipc) : ''}
+  ${ipc ? renderIPCChart(ipc) : renderIPCPlaceholder()}
   ${buildAlertsSection()}
   ${paywallBlock}
   <div class="dash-section">
