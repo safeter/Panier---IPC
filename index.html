@@ -546,6 +546,21 @@ body{display:flex;flex-direction:column}
   </div>
 </div>
 
+<!-- MODAL CODE D'INVITATION -->
+<div class="modal-bg" id="invite-modal">
+  <div class="modal">
+    <div class="modal-title">🎟️ Code d'invitation</div>
+    <div class="modal-sub">Entrez un code partagé par un membre Pro pour activer votre accès.</div>
+    <div class="field">
+      <label>Code d'invitation</label>
+      <input id="invite-input" type="text" class="region-input" placeholder="ex: PANIER2025" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px">
+    </div>
+    <div id="invite-msg" style="font-size:13px;color:var(--red);min-height:18px;margin-bottom:4px"></div>
+    <button class="btn-primary" onclick="redeemInviteCode()">Activer</button>
+    <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closeInviteModal()">Annuler</button>
+  </div>
+</div>
+
 <!-- MODAL JOURNAL DES ACHATS -->
 <div class="modal-bg" id="journal-modal" style="align-items:flex-start">
   <div class="modal" style="border-radius:0 0 24px 24px;max-height:92vh;padding-top:16px">
@@ -1666,6 +1681,9 @@ function renderProfile() {
   const proRow = !isPro
     ? '<div class="menu-item" onclick="openPaywall()"><div class="menu-item-icon">✦</div><div class="menu-item-text"><div class="menu-item-title" style="color:var(--pro)">Passer à Pro</div><div class="menu-item-sub">3$/mois · essai 30 jours</div></div><div class="menu-item-arrow">›</div></div>'
     : '';
+  const inviteRow = (!isPro && SB_USER_ID)
+    ? '<div class="menu-item" onclick="openInviteModal()"><div class="menu-item-icon">🎟️</div><div class="menu-item-text"><div class="menu-item-title">Code d\'invitation</div><div class="menu-item-sub">Activez l\'accès Pro avec un code partagé</div></div><div class="menu-item-arrow">›</div></div>'
+    : '';
   const communityRow = SB_USER_ID
     ? '<div class="menu-item" onclick="toggleCommunityShare()"><div class="menu-item-icon">🇶🇨</div><div class="menu-item-text"><div class="menu-item-title">Partage communautaire</div><div class="menu-item-sub" id="share-sub">Contribuer aux données publiques (opt-in)</div></div><div class="menu-item-arrow" id="share-toggle" style="font-size:20px;color:var(--text3)">○</div></div>'
     : '';
@@ -1686,6 +1704,7 @@ function renderProfile() {
   <div class="menu-section">
     <div class="menu-label">Mon compte</div>
     ${proRow}
+    ${inviteRow}
     <div class="menu-item" onclick="openRegionModal()"><div class="menu-item-icon">📍</div><div class="menu-item-text"><div class="menu-item-title">Ma région</div><div class="menu-item-sub">${region} — données communautaires locales</div></div><div class="menu-item-arrow">›</div></div>
     ${communityRow}
     <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
@@ -2512,6 +2531,36 @@ function openApikeyModal() {
   document.getElementById('apikey-modal').classList.add('open');
 }
 function closeApikeyModal() { document.getElementById('apikey-modal').classList.remove('open'); }
+
+function openInviteModal() {
+  document.getElementById('invite-input').value = '';
+  document.getElementById('invite-msg').textContent = '';
+  document.getElementById('invite-modal').classList.add('open');
+}
+function closeInviteModal() { document.getElementById('invite-modal').classList.remove('open'); }
+
+async function redeemInviteCode() {
+  const code = (document.getElementById('invite-input').value || '').trim().toUpperCase();
+  const msgEl = document.getElementById('invite-msg');
+  if (!code) { msgEl.textContent = 'Veuillez entrer un code.'; return; }
+  if (!SB_USER_ID) { msgEl.textContent = 'Vous devez être connecté pour utiliser un code.'; return; }
+  msgEl.style.color = 'var(--text3)';
+  msgEl.textContent = 'Vérification…';
+  try {
+    const rows = await sbFetch(`/rest/v1/invite_codes?code=eq.${encodeURIComponent(code)}&is_active=eq.true&select=code`);
+    if (!rows || rows.length === 0) {
+      msgEl.style.color = 'var(--red)';
+      msgEl.textContent = 'Code invalide ou déjà utilisé.';
+      return;
+    }
+    closeInviteModal();
+    simulateUpgrade();
+    showToast('🎟️ Code accepté — bienvenue dans Panier Pro!', 'success');
+  } catch(e) {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Erreur réseau: ' + e.message;
+  }
+}
 function saveClaudeKey() {
   const k = document.getElementById('apikey-input').value.trim();
   CLAUDE_KEY = k;
