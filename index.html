@@ -258,6 +258,15 @@ body{display:flex;flex-direction:column}
 .kpi-up{color:var(--red)}.kpi-dn{color:var(--green)}
 .kpi-ipc{background:linear-gradient(135deg,var(--bg2) 0%,rgba(168,85,247,0.06) 100%);border-color:rgba(168,85,247,0.2)}
 .kpi-ipc .kpi-val{background:linear-gradient(135deg,#fff,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.kpi-total{background:linear-gradient(135deg,var(--bg2) 0%,rgba(34,197,94,0.06) 100%);border-color:rgba(34,197,94,0.2)}
+.kpi-total .kpi-val{color:var(--green)}
+.store-bars{padding:0 16px 16px}
+.store-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.store-bar-label{font-size:12px;color:var(--text2);width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.store-bar-track{flex:1;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.store-bar-fill{height:100%;background:linear-gradient(90deg,#a855f7,#7c3aed);border-radius:3px}
+.store-bar-amt{font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;min-width:40px;text-align:right;flex-shrink:0}
+.month-delta-up{color:var(--red)}.month-delta-dn{color:var(--green)}.month-delta-eq{color:var(--text3)}
 
 /* ── IPC CHART ── */
 .ipc-chart-wrap{padding:0 16px 16px}
@@ -543,6 +552,21 @@ body{display:flex;flex-direction:column}
     </div>
     <button class="btn-primary" onclick="saveClaudeKey()">Enregistrer</button>
     <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closeApikeyModal()">Annuler</button>
+  </div>
+</div>
+
+<!-- MODAL CODE D'INVITATION -->
+<div class="modal-bg" id="invite-modal">
+  <div class="modal">
+    <div class="modal-title">🎟️ Code d'invitation</div>
+    <div class="modal-sub">Entrez un code partagé par un membre Pro pour activer votre accès.</div>
+    <div class="field">
+      <label>Code d'invitation</label>
+      <input id="invite-input" type="text" class="region-input" placeholder="ex: PANIER2025" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px">
+    </div>
+    <div id="invite-msg" style="font-size:13px;color:var(--red);min-height:18px;margin-bottom:4px"></div>
+    <button class="btn-primary" onclick="redeemInviteCode()">Activer</button>
+    <button class="btn-ghost" style="margin-top:10px;width:100%" onclick="closeInviteModal()">Annuler</button>
   </div>
 </div>
 
@@ -1559,29 +1583,63 @@ function buildAlertsSection() {
 }
 
 function renderDash() {
-  // KPIs uniquement sur les achats personnels (localUserDB), pas le catalogue
   const myProds = Object.values(localUserDB);
   const myCount = myProds.length;
-  const upItems = myProds.filter(p => p.trend === 'up').length;
-  const dnItems = myProds.filter(p => p.trend === 'down').length;
 
-  // Transactions récentes — toutes les entrées historique de localUserDB, triées par date desc
+  // Toutes les transactions, triées par date desc
   const recentTxs = [];
   Object.entries(localUserDB).forEach(([name, d]) => {
     (d.historique || []).forEach(h => {
-      recentTxs.push({ name, store: h.m || '', date: h.d || '', price: h.p, cat: d.cat });
+      recentTxs.push({ name, store: h.m || '', date: h.d || '', price: h.p || 0, cat: d.cat });
     });
   });
   recentTxs.sort((a, b) => b.date.localeCompare(a.date));
-  const lastTxs = recentTxs.slice(0, 12);
+  const lastTxs = recentTxs.slice(0, 20);
+
+  // Dépenses totales
+  const totalSpent = recentTxs.reduce((s, t) => s + t.price, 0);
+
+  // Ce mois vs mois dernier
+  const now = new Date();
+  const thisMonthKey = now.toISOString().slice(0, 7);
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthKey = prevMonthDate.toISOString().slice(0, 7);
+  const thisMonthSpent = recentTxs.filter(t => t.date.startsWith(thisMonthKey)).reduce((s, t) => s + t.price, 0);
+  const prevMonthSpent = recentTxs.filter(t => t.date.startsWith(prevMonthKey)).reduce((s, t) => s + t.price, 0);
+  const monthDeltaPct = prevMonthSpent > 0 ? ((thisMonthSpent - prevMonthSpent) / prevMonthSpent * 100) : null;
+  const monthDeltaStr = monthDeltaPct !== null
+    ? (monthDeltaPct > 0 ? `+${monthDeltaPct.toFixed(0)}% vs mois dernier` : `${monthDeltaPct.toFixed(0)}% vs mois dernier`)
+    : (thisMonthSpent > 0 ? 'premier mois enregistré' : 'aucun achat ce mois');
+  const monthDeltaClass = monthDeltaPct === null ? 'month-delta-eq' : (monthDeltaPct > 0 ? 'month-delta-up' : 'month-delta-dn');
+
+  // Par magasin
+  const byStore = {};
+  recentTxs.forEach(t => { if (t.store) byStore[t.store] = (byStore[t.store] || 0) + t.price; });
+  const topStores = Object.entries(byStore).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const maxStoreAmt = topStores[0]?.[1] || 1;
 
   // IPC
   const ipc = computeIPC();
   const ipcPct = ipc ? parseFloat(ipc.inflationPct) : null;
   const ipcPctStr = ipcPct !== null ? (ipcPct >= 0 ? `+${ipcPct}%` : `${ipcPct}%`) : '—';
   const ipcPctClass = ipcPct > 0 ? 'kpi-up' : ipcPct < 0 ? 'kpi-dn' : '';
+  const ipcSub = ipcPct !== null ? 'depuis 1er achat · IPC personnel' : 'achetez un produit 3× pour calculer';
 
   const el = document.getElementById('dashContent');
+
+  const storesBars = topStores.length ? `
+  <div class="dash-section" style="padding-bottom:4px">
+    <div class="dash-section-title">Par magasin</div>
+  </div>
+  <div class="store-bars">
+    ${topStores.map(([store, amt]) =>
+      `<div class="store-bar-row">
+        <div class="store-bar-label" title="${store}">${store}</div>
+        <div class="store-bar-track"><div class="store-bar-fill" style="width:${(amt/maxStoreAmt*100).toFixed(0)}%"></div></div>
+        <div class="store-bar-amt">$${amt.toFixed(0)}</div>
+      </div>`
+    ).join('')}
+  </div>` : '';
 
   const txRows = lastTxs.length ? lastTxs.map(t => {
     const icon = CAT_ICONS[t.cat] || '📦';
@@ -1589,7 +1647,7 @@ function renderDash() {
       + '<div class="r-icon">' + icon + '</div>'
       + '<div class="r-info"><div class="r-name">' + t.name + '</div>'
       + '<div class="r-sub">' + t.store + ' · ' + t.date + '</div></div>'
-      + '<div class="r-price">$' + (t.price || 0).toFixed(2) + '</div></div>';
+      + '<div class="r-price">$' + t.price.toFixed(2) + '</div></div>';
   }).join('') : '<div style="padding:16px;color:var(--text3);font-size:13px">Aucun achat enregistré — scannez votre premier reçu ✏️</div>';
 
   const paywallBlock = !isPro ? '<div style="padding:0 16px 16px"><div class="paywall-banner"><div class="pw-title">Passer à Pro ✦</div><div class="pw-sub">IPC complet, alertes intelligentes, détection shrinkflation et données communautaires québécoises.</div><div class="pw-features"><div class="pw-feat">Votre inflation personnelle en temps réel</div><div class="pw-feat">Alertes prix plancher &amp; dépassement</div><div class="pw-feat">Détection shrinkflation automatique</div></div><div class="pw-price-row"><span class="pw-price">3$</span><span class="pw-per">/ mois</span></div><button class="btn-upgrade" onclick="openPaywall()">Essai gratuit 30 jours</button></div></div>' : '';
@@ -1598,14 +1656,31 @@ function renderDash() {
   <div class="dash-section">
     <div class="dash-section-title">Résumé</div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Produits achetés</div><div class="kpi-val">${myCount}</div><div class="kpi-sub">${recentTxs.length} transactions au total</div></div>
-      <div class="kpi"><div class="kpi-label">En hausse</div><div class="kpi-val kpi-up">${upItems}</div><div class="kpi-sub kpi-dn">${dnItems} en baisse</div></div>
+      <div class="kpi kpi-total">
+        <div class="kpi-label">Dépensé au total</div>
+        <div class="kpi-val">$${totalSpent.toFixed(0)}</div>
+        <div class="kpi-sub">${myCount} produits · ${recentTxs.length} achats</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Ce mois-ci</div>
+        <div class="kpi-val">$${thisMonthSpent.toFixed(0)}</div>
+        <div class="kpi-sub ${monthDeltaClass}">${monthDeltaStr}</div>
+      </div>
     </div>
     <div class="kpi-row">
-      <div class="kpi kpi-ipc"><div class="kpi-label">Mon inflation réelle</div><div class="kpi-val ${ipcPctClass}">${ipcPctStr}</div><div class="kpi-sub">depuis 1er achat · IPC personnel</div></div>
-      <div class="kpi"><div class="kpi-label">Alertes actives</div><div class="kpi-val" style="color:var(--amber)">${countAlerts()}</div><div class="kpi-sub">prix élevés détectés</div></div>
+      <div class="kpi kpi-ipc">
+        <div class="kpi-label">Mon inflation réelle</div>
+        <div class="kpi-val ${ipcPctClass}">${ipcPctStr}</div>
+        <div class="kpi-sub">${ipcSub}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Alertes actives</div>
+        <div class="kpi-val" style="color:var(--amber)">${countAlerts()}</div>
+        <div class="kpi-sub">prix élevés détectés</div>
+      </div>
     </div>
   </div>
+  ${storesBars}
   ${ipc ? renderIPCChart(ipc) : ''}
   ${buildAlertsSection()}
   ${paywallBlock}
@@ -1666,6 +1741,9 @@ function renderProfile() {
   const proRow = !isPro
     ? '<div class="menu-item" onclick="openPaywall()"><div class="menu-item-icon">✦</div><div class="menu-item-text"><div class="menu-item-title" style="color:var(--pro)">Passer à Pro</div><div class="menu-item-sub">3$/mois · essai 30 jours</div></div><div class="menu-item-arrow">›</div></div>'
     : '';
+  const inviteRow = (!isPro && SB_USER_ID)
+    ? '<div class="menu-item" onclick="openInviteModal()"><div class="menu-item-icon">🎟️</div><div class="menu-item-text"><div class="menu-item-title">Code d\'invitation</div><div class="menu-item-sub">Activez l\'accès Pro avec un code partagé</div></div><div class="menu-item-arrow">›</div></div>'
+    : '';
   const communityRow = SB_USER_ID
     ? '<div class="menu-item" onclick="toggleCommunityShare()"><div class="menu-item-icon">🇶🇨</div><div class="menu-item-text"><div class="menu-item-title">Partage communautaire</div><div class="menu-item-sub" id="share-sub">Contribuer aux données publiques (opt-in)</div></div><div class="menu-item-arrow" id="share-toggle" style="font-size:20px;color:var(--text3)">○</div></div>'
     : '';
@@ -1686,6 +1764,7 @@ function renderProfile() {
   <div class="menu-section">
     <div class="menu-label">Mon compte</div>
     ${proRow}
+    ${inviteRow}
     <div class="menu-item" onclick="openRegionModal()"><div class="menu-item-icon">📍</div><div class="menu-item-text"><div class="menu-item-title">Ma région</div><div class="menu-item-sub">${region} — données communautaires locales</div></div><div class="menu-item-arrow">›</div></div>
     ${communityRow}
     <div class="menu-item" onclick="showToast('Bientôt disponible 🚧')"><div class="menu-item-icon">🔔</div><div class="menu-item-text"><div class="menu-item-title">Alertes de prix</div><div class="menu-item-sub">${alertesSub}</div></div><div class="menu-item-arrow">›</div></div>
@@ -2512,6 +2591,36 @@ function openApikeyModal() {
   document.getElementById('apikey-modal').classList.add('open');
 }
 function closeApikeyModal() { document.getElementById('apikey-modal').classList.remove('open'); }
+
+function openInviteModal() {
+  document.getElementById('invite-input').value = '';
+  document.getElementById('invite-msg').textContent = '';
+  document.getElementById('invite-modal').classList.add('open');
+}
+function closeInviteModal() { document.getElementById('invite-modal').classList.remove('open'); }
+
+async function redeemInviteCode() {
+  const code = (document.getElementById('invite-input').value || '').trim().toUpperCase();
+  const msgEl = document.getElementById('invite-msg');
+  if (!code) { msgEl.textContent = 'Veuillez entrer un code.'; return; }
+  if (!SB_USER_ID) { msgEl.textContent = 'Vous devez être connecté pour utiliser un code.'; return; }
+  msgEl.style.color = 'var(--text3)';
+  msgEl.textContent = 'Vérification…';
+  try {
+    const rows = await sbFetch(`/rest/v1/invite_codes?code=eq.${encodeURIComponent(code)}&is_active=eq.true&select=code`);
+    if (!rows || rows.length === 0) {
+      msgEl.style.color = 'var(--red)';
+      msgEl.textContent = 'Code invalide ou déjà utilisé.';
+      return;
+    }
+    closeInviteModal();
+    simulateUpgrade();
+    showToast('🎟️ Code accepté — bienvenue dans Panier Pro!', 'success');
+  } catch(e) {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Erreur réseau: ' + e.message;
+  }
+}
 function saveClaudeKey() {
   const k = document.getElementById('apikey-input').value.trim();
   CLAUDE_KEY = k;
