@@ -1183,7 +1183,8 @@ function getProductGroup(name, cat) {
       base.push(words[1]);
     }
   }
-  return (cat || '') + ':' + base.join(' ');
+  // Clé sans catégorie → permet le grouping cross-catégorie (ex: Framboises + Framboises congelées)
+  return base.join(' ');
 }
 
 function buildGroupedProds(prods) {
@@ -1204,11 +1205,8 @@ function buildGroupedProds(prods) {
     const normName = norm(p.name);
     for (const mk of multiKeys) {
       if (!groups[mk]) continue;
-      const base = mk.split(':').slice(1).join(':'); // strip cat prefix
-      if (base.length < 3) continue;
-      if (groups[mk].cat !== (p.cat || '')) continue;
-      // Check base appears as a whole word (or word sequence) inside normName
-      const re = new RegExp('\\b' + base.replace(/\s+/g, '\\s+') + '\\b');
+      if (mk.length < 3) continue;
+      const re = new RegExp('\\b' + mk.replace(/\s+/g, '\\s+') + '\\b');
       if (re.test(normName)) {
         groups[mk].variants.push(p);
         delete groups[k];
@@ -1250,7 +1248,7 @@ function buildGroupedProds(prods) {
     const maxScore = Math.max(...all.map(v => v._s || 0));
     return {
       name: shortestName,
-      cat: g.cat,
+      cat: all[0].cat, // catégorie de la variante la plus achetée
       n: totalN,
       min: minPrice, max: maxPrice, moy: moyPrice,
       dernier_prix: lastVariant.dernier_prix,
@@ -1670,6 +1668,7 @@ function renderProfile() {
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
+    <div class="menu-item" onclick="installApp()"><div class="menu-item-icon">📲</div><div class="menu-item-text"><div class="menu-item-title">Installer l'application</div><div class="menu-item-sub">Android · iOS · partagez le lien à votre conjointe</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="openJournalModal()"><div class="menu-item-icon">📋</div><div class="menu-item-text"><div class="menu-item-title">Journal des achats</div><div class="menu-item-sub">Toutes vos transactions · export CSV / Excel</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="openApikeyModal()"><div class="menu-item-icon">🔑</div><div class="menu-item-text"><div class="menu-item-title">Clé API Claude</div><div class="menu-item-sub">${keyStatus}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="showToast('Panier v0.3.0 — Journal · API Claude · Export XLS')"><div class="menu-item-icon">ℹ️</div><div class="menu-item-text"><div class="menu-item-title">À propos</div><div class="menu-item-sub">Panier v0.3.0</div></div><div class="menu-item-arrow">›</div></div>
@@ -2536,6 +2535,27 @@ function showToast(msg, type = '') {
 }
 </script>
 <script>
+// ── PWA Install prompt ───────────────────────────────────────
+let _installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _installPrompt = e; });
+
+function installApp() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInApp = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  if (isInApp) { showToast('Application déjà installée ✓', 'success'); return; }
+  if (_installPrompt) {
+    _installPrompt.prompt();
+    _installPrompt.userChoice.then(r => {
+      if (r.outcome === 'accepted') showToast('Installation en cours… ✓', 'success');
+      _installPrompt = null;
+    });
+  } else if (isIOS) {
+    showToast('Sur Safari: appuie sur ↑ Partager → "Sur l\'écran d\'accueil"', '');
+  } else {
+    showToast('Dans Chrome: menu ⋮ → "Installer l\'application" ou "Ajouter à l\'écran d\'accueil"', '');
+  }
+}
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
   navigator.serviceWorker.addEventListener("message", e => {
