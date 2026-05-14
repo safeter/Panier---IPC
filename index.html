@@ -617,6 +617,10 @@ async function sbFetch(path, opts = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      SB_TOKEN = SB_ANON; SB_USER_ID = null;
+      showToast('Session expirée — reconnectez-vous', 'error');
+    }
     throw new Error(err.message || `HTTP ${res.status}`);
   }
   const ct = res.headers.get('content-type') || '';
@@ -699,9 +703,10 @@ async function sbLoadTransactions() {
 function ingestTransaction(tx) {
   const { product_name: rawName, category, unit, price, weight_g, store: rawStore, date: d, region } = tx;
   if (!rawName || !price) return;
-  // Normalize: trim whitespace, collapse spaces; preserve original casing for display
   const name = rawName.trim().replace(/\s+/g, ' ');
-  const store = (rawStore || '').trim().replace(/\s+/g, ' ');
+  // Normalize store to title case ("super c" → "Super C", "IGA" → "Iga")
+  const store = (rawStore || '').trim().replace(/\s+/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
   const p100g = weight_g ? parseFloat(((price / weight_g) * 100).toFixed(4)) : null;
   const histEntry = { d, m: store, p: price, region: region || null };
   if (weight_g) histEntry.g = weight_g;
@@ -917,7 +922,7 @@ function computeIPC() {
 
   const first = valid[0].index;
   const last = valid[valid.length - 1].index;
-  const inflationPct = ((last - 100) / 100 * 100).toFixed(1);
+  const inflationPct = (last - 100).toFixed(1);
 
   return {
     current: last.toFixed(1),
@@ -988,6 +993,38 @@ function renderIPCChart(ipc) {
           return i % step === 0 || i === data.length - 1;
         }).map(d => `<span class="ipc-month-label">${d.month.slice(2)}</span>`).join('')}
       </div>
+    </div>
+  </div>`;
+}
+
+function renderIPCPlaceholder() {
+  // Compte les produits avec ≥2 achats pour donner un feedback précis
+  const eligible = Object.values(localUserDB).filter(d => d.n >= 3 && d.historique?.length >= 3).length;
+  const partial  = Object.values(localUserDB).filter(d => d.n >= 2 && d.historique?.length >= 2).length;
+  const needed = Math.max(0, 3 - partial);
+  const sub = eligible > 0
+    ? 'Achetez ces produits dans un mois différent pour calculer votre IPC'
+    : partial > 0
+      ? `${partial} produit${partial>1?'s':''} avec 2 achats — encore 1 visite pour activer`
+      : `Achetez ${needed > 0 ? needed + ' produit' + (needed>1?'s':'') + ' de plus' : 'les mêmes produits'} lors de votre prochaine visite`;
+  // Fake sparkline pour l'esthétique
+  const pts = [48,46,50,52,49,53,55,51,54,58,55,60].map((y,i) => `${i*27},${65-y}`).join(' ');
+  return `
+  <div class="ipc-chart-wrap">
+    <div class="ipc-chart-card" style="opacity:.55;pointer-events:none">
+      <div class="ipc-chart-header">
+        <div>
+          <div class="ipc-chart-title">IPC Personnel</div>
+          <div class="ipc-chart-sub">${sub}</div>
+        </div>
+        <div class="ipc-chart-val">
+          <div class="ipc-chart-pct" style="color:var(--text3)">—</div>
+          <div class="ipc-chart-base">données insuffisantes</div>
+        </div>
+      </div>
+      <svg viewBox="0 0 300 65" preserveAspectRatio="none" style="height:65px;width:100%">
+        <polyline points="${pts}" fill="none" stroke="var(--border2)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
+      </svg>
     </div>
   </div>`;
 }
@@ -1596,6 +1633,13 @@ function renderDash() {
   recentTxs.sort((a, b) => b.date.localeCompare(a.date));
   const lastTxs = recentTxs.slice(0, 20);
 
+  const el = document.getElementById('dashContent');
+
+  if (!recentTxs.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:60px 24px"><div class="empty-icon">🛒</div><div class="empty-text">Scannez votre premier reçu pour commencer</div><button class="btn-primary" onclick="openScan()" style="margin-top:20px;width:auto;padding:12px 28px;font-size:14px;display:inline-block">Scanner un reçu</button></div>`;
+    return;
+  }
+
   // Dépenses totales
   const totalSpent = recentTxs.reduce((s, t) => s + t.price, 0);
 
@@ -1624,8 +1668,6 @@ function renderDash() {
   const ipcPctStr = ipcPct !== null ? (ipcPct >= 0 ? `+${ipcPct}%` : `${ipcPct}%`) : '—';
   const ipcPctClass = ipcPct > 0 ? 'kpi-up' : ipcPct < 0 ? 'kpi-dn' : '';
   const ipcSub = ipcPct !== null ? 'depuis 1er achat · IPC personnel' : 'achetez un produit 3× pour calculer';
-
-  const el = document.getElementById('dashContent');
 
   const storesBars = topStores.length ? `
   <div class="dash-section" style="padding-bottom:4px">
@@ -1681,7 +1723,7 @@ function renderDash() {
     </div>
   </div>
   ${storesBars}
-  ${ipc ? renderIPCChart(ipc) : ''}
+  ${ipc ? renderIPCChart(ipc) : renderIPCPlaceholder()}
   ${buildAlertsSection()}
   ${paywallBlock}
   <div class="dash-section">
@@ -1771,6 +1813,7 @@ function renderProfile() {
     <div class="menu-item" onclick="exportCSV()"><div class="menu-item-icon">📤</div><div class="menu-item-text"><div class="menu-item-title">Exporter mes données</div><div class="menu-item-sub">${exportSub}</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="document.getElementById('json-import-input').value='';document.getElementById('json-import-input').click()"><div class="menu-item-icon">📥</div><div class="menu-item-text"><div class="menu-item-title">Importer un reçu JSON</div><div class="menu-item-sub">Fusionner un fichier reçu avec votre historique</div></div><div class="menu-item-arrow">›</div></div>
     <div class="menu-item" onclick="runSbDiag()"><div class="menu-item-icon">🔗</div><div class="menu-item-text"><div class="menu-item-title">Tester la connexion cloud</div><div class="menu-item-sub" id="sb-diag-sub">${SB_USER_ID ? 'Connecté · appuyer pour tester Supabase' : 'Non connecté — données locales seulement'}</div></div><div class="menu-item-arrow">›</div></div>
+    <div class="menu-item" onclick="pushLocalToSupabase()"><div class="menu-item-icon">☁️</div><div class="menu-item-text"><div class="menu-item-title">Pousser données locales vers cloud</div><div class="menu-item-sub">Synchronise cet appareil → Supabase (sans doublons)</div></div><div class="menu-item-arrow">›</div></div>
   </div>
   <div class="menu-section">
     <div class="menu-label">Application</div>
@@ -1813,6 +1856,63 @@ async function runSbDiag() {
     if (sub) sub.textContent = msg;
     showToast(msg, 'error');
   }
+}
+
+async function pushLocalToSupabase() {
+  if (!SB_USER_ID) { showToast('Connectez-vous pour synchroniser', 'error'); return; }
+  const sub = document.getElementById('sb-diag-sub');
+  if (sub) sub.textContent = 'Analyse des données locales…';
+
+  // Récupérer les dates déjà dans Supabase pour éviter les doublons
+  let existingKeys = new Set();
+  try {
+    const existing = await sbFetch(`/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=product_name,date,store&limit=5000`);
+    (existing || []).forEach(r => existingKeys.add(`${r.product_name}|${r.date}|${r.store}`));
+  } catch(e) { console.warn('pushLocal fetch existing:', e.message); }
+
+  // Reconstruire les transactions depuis localUserDB.historique
+  const toInsert = [];
+  Object.entries(localUserDB).forEach(([name, d]) => {
+    (d.historique || []).forEach(h => {
+      const key = `${name}|${h.d}|${h.m}`;
+      if (!existingKeys.has(key)) {
+        toInsert.push({
+          user_id: SB_USER_ID,
+          product_name: name,
+          category: d.cat || 'Épicerie',
+          unit: d.unite || 'unité',
+          price: h.p,
+          weight_g: h.g || null,
+          price_per_100g: h.p100g || null,
+          store: h.m || '',
+          date: h.d,
+          region: h.region || userRegion || null
+        });
+      }
+    });
+  });
+
+  if (!toInsert.length) {
+    showToast('Toutes les données locales sont déjà dans Supabase ✓', 'success');
+    if (sub) sub.textContent = 'Données déjà synchronisées';
+    return;
+  }
+
+  if (sub) sub.textContent = `Envoi de ${toInsert.length} transactions…`;
+  // Insérer par lots de 100
+  const BATCH = 100;
+  let sent = 0;
+  for (let i = 0; i < toInsert.length; i += BATCH) {
+    const batch = toInsert.slice(i, i + BATCH);
+    try {
+      await sbFetch('/rest/v1/transactions', { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' }, body: JSON.stringify(batch) });
+      sent += batch.length;
+      if (sub) sub.textContent = `Envoyé ${sent}/${toInsert.length}…`;
+    } catch(e) { console.warn('pushLocal batch:', e.message); }
+  }
+  showToast(`${sent} transaction${sent>1?'s':''} synchronisée${sent>1?'s':''} vers Supabase ✓`, 'success');
+  if (sub) sub.textContent = `✓ ${sent} transactions envoyées`;
+  if (sent > 0) { await sbLoadTransactions(); renderDash(); }
 }
 
 // ══════════════════════════════════════════
@@ -1889,48 +1989,15 @@ function handleJSONImport(e) {
         ? parseFloat(item.price_per_unit)
         : parseFloat(item.price) / Math.max(parseInt(item.qty) || 1, 1);
       if (!unitPrice || isNaN(unitPrice) || unitPrice <= 0) return;
-
       const weight_g = parseInt(item.weight_g) || null;
       const p100g = weight_g ? parseFloat(((unitPrice / weight_g) * 100).toFixed(4)) : null;
-      const histEntry = { d: date, m: store, p: unitPrice, region: userRegion || null };
-      if (weight_g) histEntry.g = weight_g;
-      if (p100g)   histEntry.p100g = p100g;
-
-      if (!DB[item.name]) {
-        DB[item.name] = {
-          cat: item.category || 'Épicerie',
-          unite: item.unit || 'unité',
-          dernier_prix: unitPrice, dernier_magasin: store, dernier_date: date,
-          min: unitPrice, max: unitPrice, moy: unitPrice, n: 1,
-          trend: 'stable', trend_pct: 0,
-          magasins: { [store]: { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 } },
-          historique: [histEntry]
-        };
-      } else {
-        const d = DB[item.name];
-        d.historique.push(histEntry);
-        d.n++; d.dernier_prix = unitPrice; d.dernier_magasin = store; d.dernier_date = date;
-        d.min = Math.min(d.min, unitPrice); d.max = Math.max(d.max, unitPrice);
-        const prices = d.historique.map(h => h.p);
-        d.moy = parseFloat((prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2));
-        if (prices.length >= 4) {
-          const f = prices.slice(0, 2).reduce((a, b) => a + b) / 2;
-          const l = prices.slice(-2).reduce((a, b) => a + b) / 2;
-          const pct = (l - f) / f * 100;
-          d.trend = pct > 5 ? 'up' : pct < -5 ? 'down' : 'stable';
-          d.trend_pct = parseFloat(pct.toFixed(1));
-        }
-        if (!d.magasins[store]) d.magasins[store] = { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 };
-        else {
-          const ms = d.magasins[store];
-          ms.n++; ms.min = Math.min(ms.min, unitPrice); ms.max = Math.max(ms.max, unitPrice);
-          const storeH = d.historique.filter(h => h.m === store);
-          ms.moy = parseFloat((storeH.reduce((a, h) => a + h.p, 0) / storeH.length).toFixed(2));
-        }
-      }
-
-      itemsToSave.push({ name: item.name, category: item.category || 'Épicerie', unit: item.unit || 'unité', unitPrice, weight_g, p100g });
+      ingestTransaction({
+        product_name: item.name, category: item.category || 'Épicerie',
+        unit: item.unit || 'unité', price: unitPrice, weight_g,
+        store, date, region: userRegion || null
+      });
       markUserProduct(item.name);
+      itemsToSave.push({ name: item.name, category: item.category || 'Épicerie', unit: item.unit || 'unité', unitPrice, weight_g, p100g });
       added++;
     });
 
@@ -2173,7 +2240,7 @@ async function processPdf(b64) {
       const resp = await fetch(CLAUDE_API, {
         method: 'POST',
         headers: { 'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','x-api-key':CLAUDE_KEY },
-        body: JSON.stringify({ model:'claude-sonnet-4-5-20251001', max_tokens:2000, messages:[{ role:'user', content:[
+        body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:2000, messages:[{ role:'user', content:[
           { type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 } },
           { type:'text', text:RECEIPT_PROMPT }
         ]}]})
@@ -2227,14 +2294,14 @@ async function processReceipt(b64) {
       const resp = await fetch(CLAUDE_API, {
         method: 'POST',
         headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, {'x-api-key':CLAUDE_KEY}),
-        body: JSON.stringify({ model:'claude-sonnet-4-5-20251001', max_tokens:2000, messages:[{ role:'user', content:[
+        body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:2000, messages:[{ role:'user', content:[
           { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:b64 } },
           { type:'text', text:RECEIPT_PROMPT }
         ]}]})
       });
       const data = await resp.json();
       if (data.error) throw new Error('Claude: ' + data.error.message);
-      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
+      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json[\s\S]*?```|```/g,'').trim()));
     } else {
       await ocrImage(b64);
     }
@@ -2487,64 +2554,19 @@ function confirmReceipt() {
   items.forEach(item => {
     if (!item.name || item.price <= 0) return;
     const unitPrice = item.price / Math.max(item.qty, 1);
-
-    // Module 2: stocker prix_unitaire ET prix_100g
-    const price100g = item.weight_g ? computePrice100g(unitPrice, `${item.weight_g}g`) : null;
-
-    const histEntry = { d: today, m: store, p: unitPrice, region: userRegion || null };
-    if (item.weight_g) histEntry.g = item.weight_g;
-    if (price100g) histEntry.p100g = parseFloat(price100g.toFixed(4));
-
-    if (!DB[item.name]) {
-      DB[item.name] = {
-        cat: item.category,
-        unite: item.unit,
-        dernier_prix: unitPrice,
-        dernier_magasin: store,
-        dernier_date: today,
-        min: unitPrice, max: unitPrice, moy: unitPrice,
-        n: 1,
-        trend: 'stable', trend_pct: 0,
-        magasins: { [store]: { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 } },
-        historique: [histEntry]
-      };
-    } else {
-      const d = DB[item.name];
-      d.historique.push(histEntry);
-      d.n++; d.dernier_prix = unitPrice; d.dernier_magasin = store; d.dernier_date = today;
-      d.min = Math.min(d.min, unitPrice); d.max = Math.max(d.max, unitPrice);
-      const prices = d.historique.map(h => h.p);
-      d.moy = parseFloat((prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2));
-      if (prices.length >= 4) {
-        const f = prices.slice(0, 2).reduce((a, b) => a + b) / 2;
-        const l = prices.slice(-2).reduce((a, b) => a + b) / 2;
-        const pct = (l - f) / f * 100;
-        d.trend = pct > 5 ? 'up' : pct < -5 ? 'down' : 'stable';
-        d.trend_pct = parseFloat(pct.toFixed(1));
-      }
-      if (!d.magasins[store]) d.magasins[store] = { moy: unitPrice, min: unitPrice, max: unitPrice, n: 1 };
-      else {
-        const ms = d.magasins[store];
-        ms.n++; ms.min = Math.min(ms.min, unitPrice); ms.max = Math.max(ms.max, unitPrice);
-        const storeH = d.historique.filter(h => h.m === store);
-        ms.moy = parseFloat((storeH.reduce((a, h) => a + h.p, 0) / storeH.length).toFixed(2));
-      }
-
-      // Module 4: détecter shrinkflation automatiquement
-      // Si même prix (±5%) mais poids réduit → ajouter flag
-      if (item.weight_g && d.historique.length >= 2) {
-        const prev = [...d.historique].slice(0, -1).filter(h => h.g && h.g > 0);
-        if (prev.length > 0) {
-          const prevG = prev[prev.length - 1].g;
-          const prevP = prev[prev.length - 1].p;
-          if (item.weight_g < prevG * 0.95 && Math.abs(unitPrice - prevP) / prevP < 0.05) {
-            const reducPct = Math.round((1 - item.weight_g / prevG) * 100);
-            showToast(`⚠ Shrinkflation détectée sur ${item.name} (-${reducPct}% format)`, 'error');
-          }
-        }
-      }
-    }
+    // Capture l'état avant ingest pour détecter la shrinkflation
+    const prevWeighed = DB[item.name]?.historique?.filter(h => h.g && h.g > 0).pop();
+    ingestTransaction({
+      product_name: item.name, category: item.category, unit: item.unit,
+      price: unitPrice, weight_g: item.weight_g || null,
+      store, date: today, region: userRegion || null
+    });
     markUserProduct(item.name);
+    // Shrinkflation toast: même prix ±5% mais poids réduit
+    if (item.weight_g && prevWeighed && item.weight_g < prevWeighed.g * 0.95
+        && Math.abs(unitPrice - prevWeighed.p) / prevWeighed.p < 0.05) {
+      showToast(`⚠ Shrinkflation sur ${item.name} (-${Math.round((1-item.weight_g/prevWeighed.g)*100)}% format)`, 'error');
+    }
     added++;
   });
 
@@ -2657,7 +2679,6 @@ function loadMoreJournal() {
 
 async function openJournalModal() {
   document.getElementById('journal-modal').classList.add('open');
-  window._journalOffset = 0;
   const el = document.getElementById('journal-list');
   el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Chargement…</div>';
   try {
@@ -2675,7 +2696,7 @@ function closeJournalModal() { document.getElementById('journal-modal').classLis
 
 function buildJournalFromDB() {
   const rows = [];
-  Object.entries(DB).forEach(([name, d]) => {
+  Object.entries(localUserDB).forEach(([name, d]) => {
     (d.historique || []).forEach(h => rows.push({ product_name: name, date: h.d, store: h.m, price: h.p, price_per_100g: h.p100g || null }));
   });
   return rows.sort((a, b) => b.date.localeCompare(a.date));
