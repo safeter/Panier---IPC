@@ -2052,44 +2052,66 @@ function handlePdfUpload(e) {
   e.target.value = '';
 }
 
+const RECEIPT_PROMPT = `Tu analyses un reçu d'épicerie québécois. Extrais tous les items achetés.
+
+Règles importantes :
+- Abréviations Super C : IRRS.=Irrésistibles, NATUR.=Nature, DMONTE=Del Monte, LILYJ.=Lily's Kitchen, CAFEWILL.=Café Willoughby, LACT.=Lactantia, FS=Fontaine Santé, BC=Boucherie/Charcuterie, IR=Irrésistibles
+- Format "2 @ $x.xx" = quantité 2, prix unitaire x.xx
+- Format "x.xxx kg @ $x.xx/kg" = achat au poids, extrais weight_g et prix total
+- Si une ligne "Rabais x.xx" suit un item : price = prix_affiché - rabais, is_promo = true
+- Ignorer : Points bonus, Sous-total, Total, TPS, TVQ, paiement carte, solde points
+- Normaliser les noms en français complet et lisible (pas d'abréviations)
+- Catégories valides : Fruits & légumes, Laitiers & œufs, Épicerie, Viandes & poissons, Boulangerie, Surgelés, Nettoyage & maison, Santé & pharmacie, Chocolat & confiseries, Nourriture chien, Autre
+
+Retourne UNIQUEMENT ce JSON, sans texte avant ou après :
+{"store":"nom du magasin","date":"YYYY-MM-DD","items":[{"raw":"texte exact","name":"nom canonique français","category":"catégorie","qty":1,"unit":"unité","price":0.00,"weight_g":null,"is_promo":false,"confidence":0.95}]}`;
+
 async function processPdf(b64) {
   showScreen('validate');
   const body = document.getElementById('val-body');
   body.innerHTML = '<div class="val-processing"><div class="val-spinner"></div><div class="val-proc-text" id="scan-status">Chargement PDF…</div><div class="val-proc-sub" id="scan-sub">Préparation du document</div></div>';
   try {
     if (CLAUDE_KEY) {
-      const prompt = 'Analyse ce reçu d\'épicerie québécois. Retourne UNIQUEMENT un JSON: {"store":"...","date":"YYYY-MM-DD","items":[{"raw":"...","name":"...","category":"Épicerie","qty":1,"unit":"...","price":0.00,"weight_g":null,"confidence":0.9}]}';
       const resp = await fetch(CLAUDE_API, {
         method: 'POST',
-        headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, {'x-api-key':CLAUDE_KEY}),
-        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1500, messages:[{ role:'user', content:[
+        headers: { 'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','x-api-key':CLAUDE_KEY },
+        body: JSON.stringify({ model:'claude-sonnet-4-5-20251001', max_tokens:2000, messages:[{ role:'user', content:[
           { type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 } },
-          { type:'text', text:prompt }
+          { type:'text', text:RECEIPT_PROMPT }
         ]}]})
       });
       const data = await resp.json();
       if (data.error) throw new Error('Claude: ' + data.error.message);
-      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
+      renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json[\s\S]*?```|```/g,'').trim()));
     } else {
+      // Extraction de texte directe depuis le PDF (pas d'OCR nécessaire pour les PDFs email)
       const statusEl = document.getElementById('scan-status');
       const sub = document.getElementById('scan-sub');
-      if (sub) sub.textContent = 'Conversion PDF → image…';
+      if (sub) sub.textContent = 'Extraction du texte PDF…';
       if (!window.pdfjsLib) throw new Error('PDF.js non chargé — rechargez la page');
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-      // Conversion base64 → Uint8Array robuste
       const binaryStr = atob(b64);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-      if (statusEl) statusEl.textContent = 'Rendu de la page…';
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-      const page = await pdf.getPage(1);
-      const vp = page.getViewport({ scale: 2 });
-      const canvas = document.createElement('canvas');
-      canvas.width = vp.width; canvas.height = vp.height;
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-      if (statusEl) statusEl.textContent = 'OCR en cours…';
-      if (sub) sub.textContent = 'Lecture du texte (Tesseract)';
-      await ocrImage(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
+      if (statusEl) statusEl.textContent = `Lecture ${pdf.numPages} page${pdf.numPages>1?'s':''}…`;
+      let fullText = '';
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        // Reconstituer les lignes à partir des items de texte positionnés
+        const byY = {};
+        content.items.forEach(item => {
+          const y = Math.round(item.transform[5]);
+          if (!byY[y]) byY[y] = [];
+          byY[y].push(item.str);
+        });
+        Object.keys(byY).sort((a,b) => b-a).forEach(y => { fullText += byY[y].join(' ') + '\n'; });
+      }
+      if (statusEl) statusEl.textContent = 'Analyse du reçu…';
+      const parsed = parseReceiptText(fullText);
+      if (!parsed.items.length) { showToast('Aucun article détecté — vérifiez le PDF'); renderValidationDemo(); }
+      else renderValidation(parsed);
     }
   } catch(e) {
     console.error('processPdf:', e);
@@ -2107,9 +2129,9 @@ async function processReceipt(b64) {
       const resp = await fetch(CLAUDE_API, {
         method: 'POST',
         headers: Object.assign({'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, {'x-api-key':CLAUDE_KEY}),
-        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1500, messages:[{ role:'user', content:[
+        body: JSON.stringify({ model:'claude-sonnet-4-5-20251001', max_tokens:2000, messages:[{ role:'user', content:[
           { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:b64 } },
-          { type:'text', text:'Analyse ce reçu d\'épicerie québécois. Retourne UNIQUEMENT un JSON: {"store":"...","date":"YYYY-MM-DD","items":[{"raw":"...","name":"...","category":"Épicerie","qty":1,"unit":"...","price":0.00,"weight_g":null,"confidence":0.9}]}' }
+          { type:'text', text:RECEIPT_PROMPT }
         ]}]})
       });
       const data = await resp.json();
@@ -2155,32 +2177,94 @@ function inferCategory(n) {
 
 function parseReceiptText(raw) {
   const KNOWN_STORES = ['super c','iga','maxi','provigo','metro','walmart','costco','marché 440','sobeys','loblaws','pharmaprix','jean coutu','dollarama','tim horton','mcdonald','subway','rona','canadian tire'];
-  const SKIP_RE = /sous-total|subtotal|\btotal\b|tps|tvq|gst|qst|\btax\b|espèces|\bcash\b|visa|mastercard|débit|debit|monnaie|change|merci|thank|caisse|cashier|\btel\b|tél|www\.|\.com|points|économi|rabais|remise|coupon|solde|balance|\bno\b\s+de|\breg\b|\bvente\b|\bclient\b|facture|invoice|reçu no|receipt|\bitem\b\s+\d|\bauthori|\bapprouv/i;
+  // Abréviations Super C → noms complets
+  const ABBREVS = [['IRRS\\.?','Irrésistibles'],['NATUR\\.?','Nature'],['DMONTE','Del Monte'],['LILYJ\\.?',"Lily's Kitchen"],['CAFEWILL\\.?','Café Willoughby'],['LACT\\.?','Lactantia'],['\\bFS\\b','Fontaine Santé'],['\\bBC\\b','Boucherie']];
+  // Lignes à ignorer (pas des produits) — "rabais" géré séparément
+  const SKIP_RE = /sous-total|subtotal|\btotal\b|tps|tvq|gst|qst|\btax\b|espèces|\bcash\b|visa|mastercard|débit|debit|monnaie|change|merci|thank|caisse|cashier|\btel\b|tél|www\.|\.com|points\s+bonus|point\s+prime|économi|remise|coupon|solde\s+point|balance|\bno\b\s+de|\breg\b|\bvente\b|\bclient\b|facture|invoice|reçu\s*no|receipt|\bitem\b\s+\d|\bauthori|\bapprouv/i;
   const PRICE_RE = /(\d{1,3}[.,]\d{2})\s*[ABCF]?\s*$/;
+  const RABAIS_RE = /^rabais\s+[-−]?(\d+[.,]\d{2})/i;
+  const QTY_AT_RE = /^(\d+)\s*[@x×]\s*\$?(\d+[.,]\d{2})/i;   // "2 @ $3.99" ou "2 x 3.99"
+  const KG_RE = /(\d+[.,]\d{3})\s*kg\s*[@x×]\s*\$?(\d+[.,]\d{2})/i; // "0.453 kg @ $8.79"
   const DATE_RE = /\b(\d{4}-\d{2}-\d{2}|\d{2}[\/\-]\d{2}[\/\-]\d{2,4})\b/;
-  const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+
+  // Expand abbreviations
+  let text = raw;
+  ABBREVS.forEach(([pat, rep]) => { text = text.replace(new RegExp('\\b' + pat + '\\b', 'gi'), rep); });
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
   let store = 'Magasin inconnu', date = null;
   const items = [];
-  for (const line of lines) {
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const lo = line.toLowerCase();
-    if (store === 'Magasin inconnu') { for (const s of KNOWN_STORES) { if (lo.includes(s)) { store = s.charAt(0).toUpperCase() + s.slice(1); break; } } }
+
+    // Store detection
+    if (store === 'Magasin inconnu') {
+      for (const s of KNOWN_STORES) { if (lo.includes(s)) { store = s.split(' ').map(w => w.charAt(0).toUpperCase()+w.slice(1)).join(' '); break; } }
+    }
+
+    // Date detection
     const dm = line.match(DATE_RE);
     if (dm && !date) date = dm[1];
+
+    // Rabais → appliqué au dernier item, marque is_promo
+    const rabaisM = line.match(RABAIS_RE);
+    if (rabaisM && items.length) {
+      const disc = parseFloat(rabaisM[1].replace(',','.'));
+      const last = items[items.length - 1];
+      last.price = Math.max(0, parseFloat((last.price - disc).toFixed(2)));
+      last.is_promo = true;
+      continue;
+    }
+
     if (SKIP_RE.test(lo)) continue;
+
+    // "N @ $x.xx" — quantité multiple
+    const qtyM = line.match(QTY_AT_RE);
+    if (qtyM) {
+      const qty = parseInt(qtyM[1]);
+      const unitPrice = parseFloat(qtyM[2].replace(',','.'));
+      const namePart = line.slice(line.search(/\d+\s*[@x×]/i) + line.match(/\d+\s*[@x×]/i)[0].length).trim();
+      const nameRaw = namePart || (lines[i+1] || '');
+      if (nameRaw.length > 1) {
+        const norm = nameRaw.charAt(0).toUpperCase() + nameRaw.slice(1).toLowerCase();
+        items.push({ raw: line, name: norm, category: inferCategory(nameRaw.toLowerCase()), qty, unit: 'unité', price: unitPrice, weight_g: null, is_promo: false, confidence: 0.85 });
+      }
+      continue;
+    }
+
+    // "x.xxx kg @ $x.xx/kg" — achat au poids
+    const kgM = line.match(KG_RE);
+    if (kgM) {
+      const weightKg = parseFloat(kgM[1].replace(',','.'));
+      const pricePerKg = parseFloat(kgM[2].replace(',','.'));
+      const weight_g = Math.round(weightKg * 1000);
+      const totalPrice = parseFloat((weightKg * pricePerKg).toFixed(2));
+      const namePart = line.slice(0, line.search(KG_RE)).trim() || (i > 0 ? lines[i-1] : '');
+      if (namePart.length > 1) {
+        const norm = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
+        items.push({ raw: line, name: norm, category: inferCategory(namePart.toLowerCase()), qty: 1, unit: 'kg', price: totalPrice, weight_g, is_promo: false, confidence: 0.90 });
+      }
+      continue;
+    }
+
+    // Ligne standard: prix en fin de ligne
     const pm = line.match(PRICE_RE);
     if (!pm) continue;
-    const price = parseFloat(pm[1].replace(',', '.'));
-    if (price <= 0 || price > 999) continue;
-    let name = line.slice(0, line.lastIndexOf(pm[0])).replace(/\s+/g, ' ').trim();
+    const price = parseFloat(pm[1].replace(',','.'));
+    if (price <= 0 || price > 500) continue;
+    let name = line.slice(0, line.lastIndexOf(pm[0])).replace(/\s+/g,' ').trim();
     if (name.length < 2 || /^\d+$/.test(name)) continue;
-    const wg = (name.match(/(\d+)\s*g\b/i) || [])[1];
-    const wml = (name.match(/(\d+)\s*ml\b/i) || [])[1];
-    const wkg = (name.match(/(\d+[.,]\d+)\s*kg\b/i) || [])[1];
-    const wl = (name.match(/(\d+[.,]\d+)\s*l\b/i) || [])[1];
+
+    const wg  = (name.match(/(\d+)\s*g\b/i)||[])[1];
+    const wml = (name.match(/(\d+)\s*ml\b/i)||[])[1];
+    const wkg = (name.match(/(\d+[.,]\d+)\s*kg\b/i)||[])[1];
+    const wl  = (name.match(/(\d+[.,]\d+)\s*l\b/i)||[])[1];
     const weight_g = wkg ? Math.round(parseFloat(wkg.replace(',','.'))*1000) : wl ? Math.round(parseFloat(wl.replace(',','.'))*1000) : wg ? parseInt(wg) : wml ? parseInt(wml) : null;
-    const unit = weight_g ? weight_g + 'g' : 'unité';
+    const unit = wkg ? 'kg' : wg ? wg+'g' : wml ? wml+'ml' : 'unité';
     const norm = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
-    items.push({ raw: name, name: norm, category: inferCategory(lo), qty: 1, unit, price, weight_g, confidence: 0.72 });
+    items.push({ raw: name, name: norm, category: inferCategory(lo), qty: 1, unit, price, weight_g, is_promo: false, confidence: 0.72 });
   }
   return { store, date, items };
 }
@@ -2229,16 +2313,16 @@ function renderValItem(item, i) {
   const statusClass = conf > 0.85 ? 'ok' : conf > 0.6 ? 'warn' : 'bad';
   const confColor = conf > 0.85 ? 'var(--green)' : conf > 0.6 ? 'var(--amber)' : 'var(--red)';
 
-  // Module 2: calcul prix/100g à la validation
   const price100g = item.weight_g ? computePrice100g(item.price, `${item.weight_g}g`) : computePrice100g(item.price, item.unit);
   const price100gDisplay = price100g ? `<div class="val-price100">${price100g.toFixed(2)}$/100g</div>` : '';
+  const promoBadge = item.is_promo ? ' <span style="font-size:10px;background:var(--green-dim);color:var(--green);padding:1px 5px;border-radius:3px;font-weight:600">PROMO</span>' : '';
 
   return `<div class="val-item" data-idx="${i}">
     <div class="val-item-top">
       <div class="val-status ${statusClass}">${statusIcon}</div>
       <div class="val-item-info">
         <div class="val-raw">${item.raw || ''}</div>
-        <div class="val-name">${item.name}</div>
+        <div class="val-name">${item.name}${promoBadge}</div>
         <div class="val-cat">${item.category || ''} · ${item.unit || ''}</div>
         <div class="confidence-bar"><div class="confidence-fill" style="width:${Math.round(conf * 100)}%;background:${confColor}"></div></div>
       </div>
