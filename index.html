@@ -213,8 +213,11 @@ body{display:flex;flex-direction:column}
 .val-proc-text{font-size:14px;color:var(--text2);text-align:center;line-height:1.6}
 .val-proc-sub{font-size:12px;color:var(--text3);text-align:center}
 
-.val-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.val-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:opacity .2s}
+.val-item.removing{opacity:0}
 .val-item-top{padding:12px 13px;display:flex;align-items:center;gap:10px}
+.val-delete{background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:4px 6px;border-radius:4px;flex-shrink:0;line-height:1}
+.val-delete:hover{color:var(--red);background:var(--red-dim)}
 .val-status{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer}
 .val-status.ok{background:var(--green-dim);color:var(--green)}
 .val-status.bad{background:var(--red-dim);color:var(--red)}
@@ -565,8 +568,8 @@ body{display:flex;flex-direction:column}
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 let CLAUDE_KEY = localStorage.getItem('panier_claude_key') || '';
 
-// Propriétaires — accès Pro permanent sans passer par la DB
-const OWNER_EMAILS = ['pascaldu723@gmail.com'];
+// Accès Pro géré via profiles.is_pro dans Supabase (pas d'email hardcodé)
+const OWNER_EMAILS = [];
 
 // ══════════════════════════════════════════
 // MODULE 5 — Supabase Backend
@@ -670,8 +673,11 @@ async function sbLoadTransactions() {
 
 /** Ingère une transaction dans le cache DB local (même logique que confirmReceipt) */
 function ingestTransaction(tx) {
-  const { product_name: name, category, unit, price, weight_g, store, date: d, region } = tx;
-  if (!name || !price) return;
+  const { product_name: rawName, category, unit, price, weight_g, store: rawStore, date: d, region } = tx;
+  if (!rawName || !price) return;
+  // Normalize: trim whitespace, collapse spaces; preserve original casing for display
+  const name = rawName.trim().replace(/\s+/g, ' ');
+  const store = (rawStore || '').trim().replace(/\s+/g, ' ');
   const p100g = weight_g ? parseFloat(((price / weight_g) * 100).toFixed(4)) : null;
   const histEntry = { d, m: store, p: price, region: region || null };
   if (weight_g) histEntry.g = weight_g;
@@ -900,6 +906,7 @@ function computeIPC() {
 function renderIPCChart(ipc) {
   if (!ipc) return '';
   const data = ipc.monthlyData;
+  if (!data || data.length < 2) return '';
   const values = data.map(d => d.index);
   const minV = Math.min(...values) - 2;
   const maxV = Math.max(...values) + 2;
@@ -1400,8 +1407,9 @@ function renderPCard(p) {
       detail += `<div class="sec-title">Historique${!showFull ? ' (3 derniers)' : ''}</div>`;
       detail += `<div class="${showFull ? 'hist-rows' : 'hist-rows locked-overlay'}">`;
       hist.forEach((h, idx) => {
-        // Module 4: détecter shrinkflation dans l'historique
-        const shrinkFlag = h.g && idx > 0 ? '⚠️' : '';
+        // Shrinkflation: poids actuel < poids de l'achat précédent (plus ancien = idx+1 dans l'array inversé)
+        const prevG = hist[idx + 1]?.g;
+        const shrinkFlag = (h.g && prevG && h.g < prevG) ? '⚠️' : '';
         const p100g = h.g ? computePrice100g(h.p, `${h.g}g`) : null;
         const p100gDisplay = p100g ? `<span class="hist-100g">${p100g.toFixed(2)}$/100g</span>` : '';
         detail += `<div class="hist-r"><span class="hist-d">${h.d}</span><span class="hist-s">${h.m}${shrinkFlag}</span><span class="hist-p">$${h.p.toFixed(2)}${p100gDisplay}</span></div>`;
@@ -1861,8 +1869,14 @@ async function tryRestoreSession() {
   const sess = JSON.parse(localStorage.getItem('panier_sb_session') || 'null');
   if (!sess || !sess.access_token) return false;
   // Vérifier si le token est encore valide (exp en secondes)
-  const payload = JSON.parse(atob(sess.access_token.split('.')[1]));
-  if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('panier_sb_session'); return false; }
+  // JWTs use base64url (- _ no padding) — convert before atob()
+  let payload;
+  try {
+    const b64 = sess.access_token.split('.')[1] || '';
+    const std = b64.replace(/-/g, '+').replace(/_/g, '/').padEnd(b64.length + (4 - b64.length % 4) % 4, '=');
+    payload = JSON.parse(atob(std));
+  } catch(e) { localStorage.removeItem('panier_sb_session'); return false; }
+  if (!payload || payload.exp * 1000 < Date.now()) { localStorage.removeItem('panier_sb_session'); return false; }
   SB_TOKEN = sess.access_token;
   SB_USER_ID = sess.user.id;
   const profile = await sbLoadProfile(SB_USER_ID);
@@ -1939,7 +1953,9 @@ async function doLogout() {
   currentUser = null; isPro = false; userRegion = '';
   localStorage.removeItem('panier_sb_session');
   localUserDB = {}; localStorage.removeItem('panier_local_db');
+  pendingQueue = []; localStorage.removeItem('panier_queue');
   DB = {};
+  renderSearch(); renderDash();
   document.getElementById('screen-app').style.display = 'none';
   document.getElementById('screen-auth').classList.add('active');
   document.getElementById('screen-auth').style.display = 'flex';
@@ -1955,7 +1971,7 @@ function enterApp() {
   document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
   renderProfile();
   switchTab('search');
-  if (SB_USER_ID) flushPendingQueue();
+  if (SB_USER_ID) flushPendingQueue().catch(e => console.warn('flushPendingQueue:', e.message));
 }
 
 // ══════════════════════════════════════════
@@ -2231,6 +2247,7 @@ function renderValItem(item, i) {
         ${price100gDisplay}
         <div class="val-qty">qté: ${item.qty || 1}</div>
       </div>
+      <button class="val-delete" title="Supprimer cet article" onclick="event.stopPropagation();removeValItem(this)">✕</button>
     </div>
     <div class="val-edit">
       <div class="val-fields">
@@ -2243,6 +2260,18 @@ function renderValItem(item, i) {
       </div>
     </div>
   </div>`;
+}
+
+function removeValItem(btn) {
+  const item = btn.closest('.val-item');
+  if (!item) return;
+  item.classList.add('removing');
+  setTimeout(() => {
+    item.remove();
+    const remaining = document.querySelectorAll('.val-item').length;
+    const confirmBtn = document.querySelector('.btn-confirm');
+    if (confirmBtn) confirmBtn.innerHTML = `<span>✓</span> Confirmer ${remaining} item${remaining !== 1 ? 's' : ''}`;
+  }, 200);
 }
 
 function openManualEntry() {
@@ -2260,11 +2289,11 @@ function confirmReceipt() {
   const items = Array.from(document.querySelectorAll('.val-item')).map(el => {
     const get = f => { const inp = el.querySelector(`[data-field="${f}"]`); return inp ? inp.value : ''; };
     return {
-      name: get('name'),
+      name: get('name').trim().replace(/\s+/g, ' '),
       category: get('category'),
       price: parseFloat(get('price')) || 0,
       qty: parseInt(get('qty')) || 1,
-      unit: get('unit') || 'unité',
+      unit: get('unit').trim() || 'unité',
       weight_g: parseInt(get('weight_g')) || null
     };
   });
@@ -2386,8 +2415,34 @@ function saveClaudeKey() {
 }
 
 // ── Journal des achats ──────────────────────────────────────
+const JOURNAL_PAGE = 100;
+
+function renderJournalUpTo(rows, limit) {
+  const page = rows.slice(0, limit);
+  const remaining = rows.length - page.length;
+  const rowHtml = page.map(r => {
+    const p100g = r.price_per_100g ? '<span style="font-size:11px;color:var(--text3);margin-left:6px">' + r.price_per_100g.toFixed(2) + '$/100g</span>' : '';
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
+      + '<div><div style="font-size:14px;font-weight:600">' + (r.product_name || r.name || '') + '</div>'
+      + '<div style="font-size:12px;color:var(--text2)">' + (r.date || r.d || '') + ' · ' + (r.store || r.m || '') + '</div></div>'
+      + '<div style="text-align:right"><div style="font-size:15px;font-weight:700">$' + ((r.price || r.p || 0).toFixed(2)) + '</div>' + p100g + '</div>'
+      + '</div>';
+  }).join('');
+  const more = remaining > 0
+    ? `<button onclick="loadMoreJournal()" style="width:100%;margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:13px">Voir ${Math.min(remaining, JOURNAL_PAGE)} de plus (${remaining} restants)</button>`
+    : '';
+  return rowHtml + more;
+}
+
+function loadMoreJournal() {
+  const rows = window._journalRows || [];
+  window._journalOffset = (window._journalOffset || JOURNAL_PAGE) + JOURNAL_PAGE;
+  document.getElementById('journal-list').innerHTML = renderJournalUpTo(rows, window._journalOffset);
+}
+
 async function openJournalModal() {
   document.getElementById('journal-modal').classList.add('open');
+  window._journalOffset = 0;
   const el = document.getElementById('journal-list');
   el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Chargement…</div>';
   try {
@@ -2397,14 +2452,8 @@ async function openJournalModal() {
     const rows = src && src.length ? src : buildJournalFromDB();
     if (!rows.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2)">Aucune transaction</div>'; return; }
     window._journalRows = rows;
-    el.innerHTML = rows.map(r => {
-      const p100g = r.price_per_100g ? '<span style="font-size:11px;color:var(--text3);margin-left:6px">' + r.price_per_100g.toFixed(2) + '$/100g</span>' : '';
-      return '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
-        + '<div><div style="font-size:14px;font-weight:600">' + (r.product_name || r.name || '') + '</div>'
-        + '<div style="font-size:12px;color:var(--text2)">' + (r.date || r.d || '') + ' · ' + (r.store || r.m || '') + '</div></div>'
-        + '<div style="text-align:right"><div style="font-size:15px;font-weight:700">$' + ((r.price || r.p || 0).toFixed(2)) + '</div>' + p100g + '</div>'
-        + '</div>';
-    }).join('');
+    window._journalOffset = JOURNAL_PAGE;
+    el.innerHTML = renderJournalUpTo(rows, JOURNAL_PAGE);
   } catch(e) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--red)">Erreur: ' + e.message + '</div>'; }
 }
 function closeJournalModal() { document.getElementById('journal-modal').classList.remove('open'); }
