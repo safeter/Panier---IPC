@@ -172,6 +172,10 @@ body{display:flex;flex-direction:column}
 .gv-price{font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--text);flex-shrink:0}
 .gv-store{font-size:10px;color:var(--text3);flex-shrink:0;max-width:70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gv-chevron{font-size:9px;color:var(--text3);flex-shrink:0;margin-left:2px}
+.gv-dissocier{font-size:9px;padding:2px 5px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;flex-shrink:0;white-space:nowrap}
+.gv-dissocier:hover{background:var(--bg3);color:var(--red)}
+.pcard-regrouper{font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;margin-top:2px;display:inline-block}
+.pcard-regrouper:hover{background:var(--bg3);color:var(--accent)}
 .gv-hist{margin:0 10px 8px;border-radius:6px;overflow:hidden}
 
 /* ── SCANNER SCREEN ── */
@@ -387,6 +391,7 @@ body{display:flex;flex-direction:column}
       <div class="app-header-title">panier.</div>
       <div class="header-actions">
         <span id="plan-badge" class="free-badge">GRATUIT</span>
+        <div class="icon-btn" onclick="openManualEntry()" title="Saisie manuelle">✏️</div>
         <div class="icon-btn" onclick="showScreen('profile')">👤</div>
       </div>
     </div>
@@ -442,7 +447,10 @@ body{display:flex;flex-direction:column}
     <div class="val-header">
       <button class="icon-btn" onclick="showScreen('search')" style="width:32px;height:32px;font-size:18px">←</button>
       <div class="val-title">Valider le reçu</div>
-      <div class="val-store-badge" id="val-store-badge">Magasin</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <div class="val-store-badge" id="val-store-badge" contenteditable="true" spellcheck="false">Magasin</div>
+        <input type="date" id="val-date" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:11px;color:var(--text2);font-family:'DM Mono',monospace">
+      </div>
     </div>
     <div id="val-body" style="flex:1;display:flex;flex-direction:column;overflow:hidden"></div>
   </div>
@@ -702,30 +710,33 @@ function ingestTransaction(tx) {
 
 /** Sauvegarder une liste d'items (après validation de reçu) dans Supabase */
 async function sbSaveTransactions(items, store, date) {
-  if (!SB_USER_ID) return; // mode invité: pas de sauvegarde distante
+  if (!SB_USER_ID) return;
   const rows = items.map(item => ({
     user_id: SB_USER_ID,
     product_name: item.name,
-    category: item.category,
-    unit: item.unit,
+    category: item.category || 'Épicerie',
+    unit: item.unit || 'unité',
     price: item.unitPrice,
     weight_g: item.weight_g || null,
     price_per_100g: item.p100g || null,
     store,
     date,
     region: userRegion || null,
-    is_shared: communityShareEnabled  // opt-in communautaire
+    is_shared: communityShareEnabled || false
   }));
+  const postOpts = { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } };
   try {
-    await sbFetch('/rest/v1/transactions', {
-      method: 'POST',
-      prefer: 'return=minimal',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify(rows)
-    });
+    await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) });
   } catch(e) {
-    console.warn('sbSaveTransactions:', e.message);
-    showToast('Sauvegarde cloud partielle — données locales OK', '');
+    // Colonnes optionnelles absentes du schéma → réessayer avec colonnes de base seulement
+    console.warn('sbSaveTransactions (tentative 1):', e.message);
+    const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
+    try {
+      await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) });
+    } catch(e2) {
+      console.warn('sbSaveTransactions (tentative 2):', e2.message);
+      throw e2;
+    }
   }
 }
 
@@ -736,6 +747,68 @@ async function sbCommunityPrices(productName, region) {
     if (region) url += `&region=eq.${region}`;
     return await sbFetch(url, { prefer: 'return=representation' });
   } catch { return []; }
+}
+
+// ── File d'attente offline ─────────────────
+let pendingQueue = JSON.parse(localStorage.getItem('panier_queue') || '[]');
+function savePendingQueue() { localStorage.setItem('panier_queue', JSON.stringify(pendingQueue)); }
+function enqueuePending(items, store, date) {
+  pendingQueue.push({ items, store, date, ts: Date.now() });
+  savePendingQueue();
+}
+
+// Injecter les items pending dans DB (affichage immédiat sans attendre Supabase)
+function applyPendingToDB() {
+  pendingQueue.forEach(entry => {
+    entry.items.forEach(item => {
+      ingestTransaction({
+        product_name: item.name,
+        category: item.category || 'Épicerie',
+        unit: item.unit || 'unité',
+        price: item.unitPrice,
+        weight_g: item.weight_g || null,
+        store: entry.store,
+        date: entry.date,
+        region: null
+      });
+    });
+  });
+}
+
+async function flushPendingQueue() {
+  if (!SB_USER_ID || !pendingQueue.length) return;
+  const toFlush = [...pendingQueue];
+  pendingQueue = [];
+  savePendingQueue();
+  let flushed = 0;
+  for (const entry of toFlush) {
+    try {
+      await sbSaveTransactions(entry.items, entry.store, entry.date);
+      flushed += entry.items.length;
+    } catch(e) {
+      pendingQueue.push(entry);
+      savePendingQueue();
+    }
+  }
+  if (flushed > 0) {
+    showToast(`${flushed} transaction${flushed > 1 ? 's' : ''} offline synchronisée${flushed > 1 ? 's' : ''} ✓`, 'success');
+    renderSearch(); renderDash();
+  }
+}
+
+// ── Dissocier / regrouper variantes ──────
+let pinnedSolo = new Set(JSON.parse(localStorage.getItem('panier_solo') || '[]'));
+function pinSolo(name) {
+  pinnedSolo.add(name);
+  localStorage.setItem('panier_solo', JSON.stringify([...pinnedSolo]));
+  activeGroupKey = null; activeCard = null;
+  renderSearch();
+}
+function unpinSolo(name) {
+  pinnedSolo.delete(name);
+  localStorage.setItem('panier_solo', JSON.stringify([...pinnedSolo]));
+  activeCard = null;
+  renderSearch();
 }
 
 const CAT_ICONS={'Fruits & légumes':'🥦','Laitiers & œufs':'🥛','Épicerie':'🥫','Viandes & poissons':'🥩','Boulangerie':'🍞','Surgelés':'❄️','Nourriture chien':'🐶','Nettoyage & maison':'🧹','Santé & pharmacie':'💊','Chocolat & confiseries':'🍫','Alcool & boissons':'🍷','Bébé':'🍼','Loisirs':'🎮','Quincaillerie':'🔧','Resto & livraison':'🍽️','Services & abonnements':'📱','Autre':'📦'};
@@ -1031,22 +1104,26 @@ async function loadSheetDB() {
 }
 
 async function initDB() {
-  // 1. Charger le catalogue depuis Google Sheets (source principale)
+  // 1. Catalogue de base (Google Sheets ou fallback statique)
   const sheetDB = await loadSheetDB();
   if (sheetDB) {
     DB = sheetDB;
   } else {
-    // Fallback: prix_db.json
     try {
       const r = await fetch('prix_db.json');
       DB = await r.json();
     } catch(e) { DB = {}; }
   }
 
-  // 2. Si connecté Supabase, fusionner les transactions perso par-dessus
+  // 2. Afficher immédiatement les items sauvés localement (hors-ligne / invité)
+  //    Ils seront écrasés par Supabase si une version plus récente existe là-bas
+  applyPendingToDB();
+
+  // 3. Fusionner les transactions Supabase par-dessus (si connecté)
   if (SB_USER_ID) {
     showSyncIndicator(true);
     await sbLoadTransactions();
+    await flushPendingQueue();
     showSyncIndicator(false);
   }
 
@@ -1080,9 +1157,16 @@ function getProductGroup(name, cat) {
   const words = norm(name).trim().split(/\s+/).filter(Boolean);
   if (!words.length) return (cat || '') + ':' + name;
   let base = [words[0]];
-  // Absorb one connector + noun for compound product names (e.g. "beurre d'arachide", "jus de pomme")
-  if (words.length > 2 && CONNECTORS.has(words[1])) {
-    base.push(words[1], words[2]);
+  if (words.length > 1) {
+    if (CONNECTORS.has(words[1]) && words.length > 2) {
+      // "beurre d'arachide", "jus de pomme" \u2192 absorb connector + noun
+      base.push(words[1], words[2]);
+      // Keep numeric qualifier after compound: "cr\u00e8me de tartre 125g" \u2192 "creme de tartre 125"
+      if (words.length > 3 && /\d/.test(words[3])) base.push(words[3]);
+    } else if (/\d/.test(words[1])) {
+      // "Lait 2%", "Lait 3.25%" \u2192 the number IS the qualifier, keep it to avoid false merge
+      base.push(words[1]);
+    }
   }
   return (cat || '') + ':' + base.join(' ');
 }
@@ -1090,14 +1174,37 @@ function getProductGroup(name, cat) {
 function buildGroupedProds(prods) {
   const groups = {};
   prods.forEach(p => {
-    const key = getProductGroup(p.name, p.cat || '');
+    // Products pinned solo skip grouping entirely
+    const key = pinnedSolo.has(p.name) ? '__solo__:' + p.name : getProductGroup(p.name, p.cat || '');
     if (!groups[key]) groups[key] = { key, variants: [], cat: p.cat };
     groups[key].variants.push(p);
   });
 
+  // Reassign singletons whose normalized name CONTAINS another group's base key as a word
+  // e.g. "Twining tisane honeybush" → contains "tisane" → joins Tisane group
+  const multiKeys = Object.keys(groups).filter(k => groups[k].variants.length > 1);
+  Object.keys(groups).forEach(k => {
+    if (!groups[k] || groups[k].variants.length !== 1) return;
+    const p = groups[k].variants[0];
+    const normName = norm(p.name);
+    for (const mk of multiKeys) {
+      if (!groups[mk]) continue;
+      const base = mk.split(':').slice(1).join(':'); // strip cat prefix
+      if (base.length < 3) continue;
+      if (groups[mk].cat !== (p.cat || '')) continue;
+      // Check base appears as a whole word (or word sequence) inside normName
+      const re = new RegExp('\\b' + base.replace(/\s+/g, '\\s+') + '\\b');
+      if (re.test(normName)) {
+        groups[mk].variants.push(p);
+        delete groups[k];
+        break;
+      }
+    }
+  });
+
   return Object.values(groups).map(g => {
     if (g.variants.length === 1) return { ...g.variants[0], _isGroup: false };
-    const all = g.variants;
+    const all = g.variants.slice().sort((a, b) => b.n - a.n); // variants by purchases desc
     const allHist = all.flatMap(v => v.historique || []).sort((a, b) => (a.d || '').localeCompare(b.d || ''));
     const allPrices = allHist.map(h => h.p);
     const allMagasins = {};
@@ -1114,7 +1221,7 @@ function buildGroupedProds(prods) {
     const totalN = all.reduce((s, v) => s + v.n, 0);
     const minPrice = Math.min(...all.map(v => v.min));
     const maxPrice = Math.max(...all.map(v => v.max));
-    const moyPrice = allPrices.length ? parseFloat((allPrices.reduce((a, b) => a + b, 0) / allPrices.length).toFixed(2)) : 0;
+    const moyPrice = allPrices.length ? parseFloat((allPrices.reduce((a, b) => a + b, 0) / allPrices.length).toFixed(2)) : parseFloat((all.reduce((s, v) => s + v.moy, 0) / all.length).toFixed(2));
     let trend = 'stable', trend_pct = 0;
     if (allPrices.length >= 4) {
       const f = allPrices.slice(0, 2).reduce((a, b) => a + b) / 2;
@@ -1125,6 +1232,7 @@ function buildGroupedProds(prods) {
     }
     const lastVariant = all.reduce((lv, v) => (v.dernier_date || '') > (lv.dernier_date || '') ? v : lv);
     const shortestName = all.reduce((s, v) => v.name.length < s.name.length ? v : s).name;
+    const maxScore = Math.max(...all.map(v => v._s || 0));
     return {
       name: shortestName,
       cat: g.cat,
@@ -1139,7 +1247,8 @@ function buildGroupedProds(prods) {
       trend, trend_pct,
       _isGroup: true,
       _variants: all,
-      _groupKey: g.key
+      _groupKey: g.key,
+      _s: maxScore
     };
   });
 }
@@ -1304,6 +1413,7 @@ function renderPCard(p) {
         ${price100gStr ? '<div class="pcard-price100">' + price100gStr + '</div>' : ''}
         <div class="pcard-store">${p.dernier_magasin}</div>
         <span class="trend ${tc}">${arr} ${tl}</span>
+        ${pinnedSolo.has(p.name) ? `<button class="pcard-regrouper" onclick="event.stopPropagation();unpinSolo('${nameEsc.replace(/'/g,"\\'")}')">↗ Regrouper</button>` : ''}
       </div>
     </div>${detail}</div>`;
 }
@@ -1337,6 +1447,7 @@ function renderGroupCard(g) {
         '<span class="gv-meta">' + v.n + ' achat' + (v.n > 1 ? 's' : '') + '</span>' +
         '<span class="gv-price">$' + v.dernier_prix.toFixed(2) + '</span>' +
         '<span class="gv-store">' + v.dernier_magasin + '</span>' +
+        '<button class="gv-dissocier" onclick="event.stopPropagation();pinSolo(\'' + nameEsc.replace(/'/g,'\\\'') + '\')">✕ Dissocier</button>' +
         '<span class="gv-chevron">' + (vOpen ? '▲' : '▼') + '</span>' +
         '</div>';
       if (vOpen && v.historique && v.historique.length) {
@@ -1708,6 +1819,7 @@ function enterApp() {
   document.getElementById('plan-badge').className = isPro ? 'pro-badge' : 'free-badge';
   renderProfile();
   switchTab('search');
+  if (SB_USER_ID) flushPendingQueue();
 }
 
 // ══════════════════════════════════════════
@@ -1761,11 +1873,11 @@ function closeScan() {
 
 function capturePhoto() {
   const video = document.getElementById('cam-video');
-  if (!video.srcObject) { showToast('Caméra non disponible', 'error'); return; }
+  if (!video.srcObject || !video.videoWidth) { showToast('Caméra pas encore prête', 'error'); return; }
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  const b64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
   closeScan();
   processReceipt(b64);
 }
@@ -1804,22 +1916,34 @@ async function processPdf(b64) {
         ]}]})
       });
       const data = await resp.json();
+      if (data.error) throw new Error('Claude: ' + data.error.message);
       renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
     } else {
+      const statusEl = document.getElementById('scan-status');
       const sub = document.getElementById('scan-sub');
-      if (sub) sub.textContent = 'Conversion PDF → image (PDF.js)';
-      if (!window.pdfjsLib) throw new Error('PDF.js non chargé');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      if (sub) sub.textContent = 'Conversion PDF → image…';
+      if (!window.pdfjsLib) throw new Error('PDF.js non chargé — rechargez la page');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      // Conversion base64 → Uint8Array robuste
+      const binaryStr = atob(b64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      if (statusEl) statusEl.textContent = 'Rendu de la page…';
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       const page = await pdf.getPage(1);
       const vp = page.getViewport({ scale: 2 });
       const canvas = document.createElement('canvas');
       canvas.width = vp.width; canvas.height = vp.height;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-      await ocrImage(canvas.toDataURL('image/jpeg', 0.9).split(',')[1]);
+      if (statusEl) statusEl.textContent = 'OCR en cours…';
+      if (sub) sub.textContent = 'Lecture du texte (Tesseract)';
+      await ocrImage(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
     }
-  } catch(e) { renderValidationDemo(); }
+  } catch(e) {
+    console.error('processPdf:', e);
+    showToast('Erreur PDF: ' + e.message, 'error');
+    renderValidationDemo();
+  }
 }
 
 async function processReceipt(b64) {
@@ -1837,11 +1961,16 @@ async function processReceipt(b64) {
         ]}]})
       });
       const data = await resp.json();
+      if (data.error) throw new Error('Claude: ' + data.error.message);
       renderValidation(JSON.parse(data.content.filter(c=>c.type==='text').map(c=>c.text).join('').replace(/```json|```/g,'').trim()));
     } else {
       await ocrImage(b64);
     }
-  } catch(e) { renderValidationDemo(); }
+  } catch(e) {
+    console.error('processReceipt:', e);
+    showToast('Erreur scan: ' + e.message, 'error');
+    renderValidationDemo();
+  }
 }
 
 // ── OCR local via Tesseract.js ─────────────────────────────
@@ -1849,7 +1978,7 @@ async function ocrImage(b64) {
   const statusEl = document.getElementById('scan-status');
   const subEl = document.getElementById('scan-sub');
   if (subEl) subEl.textContent = 'OCR local — aucune clé requise';
-  if (!window.Tesseract) { renderValidationDemo(); return; }
+  if (!window.Tesseract) { showToast('Tesseract non chargé — rechargez la page', 'error'); renderValidationDemo(); return; }
   const { data: { text } } = await Tesseract.recognize(
     'data:image/jpeg;base64,' + b64, 'fra+eng',
     { logger: m => { if (m.status === 'recognizing text' && statusEl) statusEl.textContent = 'OCR ' + Math.round(m.progress * 100) + '%…'; } }
@@ -1922,6 +2051,7 @@ function renderValidationDemo() {
 
 function renderValidation(data) {
   document.getElementById('val-store-badge').textContent = data.store || 'Magasin inconnu';
+  document.getElementById('val-date').value = data.date || new Date().toISOString().slice(0, 10);
   const body = document.getElementById('val-body');
   let items = data.items || [];
   body.innerHTML = `
@@ -1968,32 +2098,38 @@ function renderValItem(item, i) {
     </div>
     <div class="val-edit">
       <div class="val-fields">
-        <div class="val-field val-field-full"><label>Nom du produit</label><input type="text" value="${item.name}" onchange="updateItem(${i},'name',this.value)"></div>
-        <div class="val-field"><label>Catégorie</label><select onchange="updateItem(${i},'category',this.value)">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nettoyage & maison','Santé & pharmacie','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
-        <div class="val-field"><label>Prix ($)</label><input type="number" step="0.01" value="${item.price}" onchange="updateItem(${i},'price',parseFloat(this.value))"></div>
-        <div class="val-field"><label>Quantité</label><input type="number" step="1" min="1" value="${item.qty || 1}" onchange="updateItem(${i},'qty',parseInt(this.value))"></div>
-        <div class="val-field"><label>Unité / Format</label><input type="text" value="${item.unit || 'unité'}" onchange="updateItem(${i},'unit',this.value)"></div>
-        <div class="val-field"><label>Poids (g)</label><input type="number" step="1" value="${item.weight_g || ''}" placeholder="ex: 454" onchange="updateItem(${i},'weight_g',parseInt(this.value)||null)"></div>
+        <div class="val-field val-field-full"><label>Nom du produit</label><input data-field="name" type="text" value="${item.name}"></div>
+        <div class="val-field"><label>Catégorie</label><select data-field="category">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nourriture chien','Nettoyage & maison','Santé & pharmacie','Chocolat & confiseries','Alcool & boissons','Bébé','Loisirs','Quincaillerie','Resto & livraison','Services & abonnements','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
+        <div class="val-field"><label>Prix ($)</label><input data-field="price" type="number" step="0.01" value="${item.price}"></div>
+        <div class="val-field"><label>Quantité</label><input data-field="qty" type="number" step="1" min="1" value="${item.qty || 1}"></div>
+        <div class="val-field"><label>Unité / Format</label><input data-field="unit" type="text" value="${item.unit || 'unité'}"></div>
+        <div class="val-field"><label>Poids (g)</label><input data-field="weight_g" type="number" step="1" value="${item.weight_g || ''}" placeholder="ex: 454"></div>
       </div>
     </div>
   </div>`;
 }
 
-let pendingItems = [];
-function updateItem(idx, field, val) { pendingItems[idx] = { ...(pendingItems[idx] || {}) }; pendingItems[idx][field] = val; }
+function openManualEntry() {
+  const today = new Date().toISOString().slice(0, 10);
+  renderValidation({
+    store: 'Magasin inconnu',
+    date: today,
+    items: [{ raw: '', name: '', category: 'Épicerie', qty: 1, unit: 'unité', price: 0, weight_g: null, confidence: 1 }]
+  });
+}
 
 function confirmReceipt() {
-  const store = document.getElementById('val-store-badge').textContent;
-  const today = new Date().toISOString().slice(0, 10);
-  const items = Array.from(document.querySelectorAll('.val-item')).map((el, i) => {
-    const inputs = el.querySelectorAll('input,select');
+  const store = document.getElementById('val-store-badge').textContent.trim() || 'Magasin inconnu';
+  const today = document.getElementById('val-date')?.value || new Date().toISOString().slice(0, 10);
+  const items = Array.from(document.querySelectorAll('.val-item')).map(el => {
+    const get = f => { const inp = el.querySelector(`[data-field="${f}"]`); return inp ? inp.value : ''; };
     return {
-      name: inputs[0].value,
-      category: inputs[1].value,
-      price: parseFloat(inputs[2].value) || 0,
-      qty: parseInt(inputs[3].value) || 1,
-      unit: inputs[4].value,
-      weight_g: parseInt(inputs[5].value) || null
+      name: get('name'),
+      category: get('category'),
+      price: parseFloat(get('price')) || 0,
+      qty: parseInt(get('qty')) || 1,
+      unit: get('unit') || 'unité',
+      weight_g: parseInt(get('weight_g')) || null
     };
   });
 
@@ -2066,7 +2202,7 @@ function confirmReceipt() {
   switchTab('search');
 
   // Supabase: sauvegarder les transactions en arrière-plan
-  if (SB_USER_ID && added > 0) {
+  if (added > 0) {
     const itemsToSave = items.filter(item => item.name && item.price > 0).map(item => ({
       name: item.name,
       category: item.category,
@@ -2075,10 +2211,19 @@ function confirmReceipt() {
       weight_g: item.weight_g || null,
       p100g: item.weight_g ? parseFloat(((item.price / Math.max(item.qty, 1) / item.weight_g) * 100).toFixed(4)) : null
     }));
-    sbSaveTransactions(itemsToSave, store, today).then(() => {
-      showSyncIndicator(false);
-    });
-    showSyncIndicator(true);
+    if (SB_USER_ID) {
+      showSyncIndicator(true);
+      sbSaveTransactions(itemsToSave, store, today).then(() => {
+        showSyncIndicator(false);
+      }).catch(() => {
+        showSyncIndicator(false);
+        enqueuePending(itemsToSave, store, today);
+        showToast('Hors ligne — sauvegardé localement, sync auto à la reconnexion', '');
+      });
+    } else {
+      // Not logged in: queue for when user logs in
+      enqueuePending(itemsToSave, store, today);
+    }
   }
 }
 
