@@ -1176,10 +1176,12 @@ function getProductGroup(name, cat) {
     if (CONNECTORS.has(words[1]) && words.length > 2) {
       // "beurre d'arachide", "jus de pomme" \u2192 absorb connector + noun
       base.push(words[1], words[2]);
-      // Keep numeric qualifier after compound: "cr\u00e8me de tartre 125g" \u2192 "creme de tartre 125"
-      if (words.length > 3 && /\d/.test(words[3])) base.push(words[3]);
-    } else if (/\d/.test(words[1])) {
-      // "Lait 2%", "Lait 3.25%" \u2192 the number IS the qualifier, keep it to avoid false merge
+      // Qualificateur purement num\u00e9rique apr\u00e8s le compos\u00e9 : "cr\u00e8me de tartre 2" \u2192 ok
+      // Qualificateur de format (170g, 1kg\u2026) \u2192 ignor\u00e9
+      if (words.length > 3 && /^\d+$/.test(words[3])) base.push(words[3]);
+    } else if (/^\d+$/.test(words[1])) {
+      // Nombre pur = qualificateur produit : "Lait 2" (Lait 2%), "Lait 3" (Lait 3.25%)
+      // "170g", "1kg", "500ml" \u2192 contiennent des lettres \u2192 ignor\u00e9s \u2192 Framboises 170g \u2261 Framboises
       base.push(words[1]);
     }
   }
