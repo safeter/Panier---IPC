@@ -710,31 +710,33 @@ function ingestTransaction(tx) {
 
 /** Sauvegarder une liste d'items (après validation de reçu) dans Supabase */
 async function sbSaveTransactions(items, store, date) {
-  if (!SB_USER_ID) return; // mode invité: pas de sauvegarde distante
+  if (!SB_USER_ID) return;
   const rows = items.map(item => ({
     user_id: SB_USER_ID,
     product_name: item.name,
-    category: item.category,
-    unit: item.unit,
+    category: item.category || 'Épicerie',
+    unit: item.unit || 'unité',
     price: item.unitPrice,
     weight_g: item.weight_g || null,
     price_per_100g: item.p100g || null,
     store,
     date,
     region: userRegion || null,
-    is_shared: communityShareEnabled  // opt-in communautaire
+    is_shared: communityShareEnabled || false
   }));
+  const postOpts = { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } };
   try {
-    await sbFetch('/rest/v1/transactions', {
-      method: 'POST',
-      prefer: 'return=minimal',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify(rows)
-    });
+    await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(rows) });
   } catch(e) {
-    console.warn('sbSaveTransactions:', e.message);
-    // Will be re-enqueued by caller via enqueuePending
-    throw e;
+    // Colonnes optionnelles absentes du schéma → réessayer avec colonnes de base seulement
+    console.warn('sbSaveTransactions (tentative 1):', e.message);
+    const coreRows = rows.map(({ price_per_100g, region, is_shared, ...r }) => r);
+    try {
+      await sbFetch('/rest/v1/transactions', { ...postOpts, body: JSON.stringify(coreRows) });
+    } catch(e2) {
+      console.warn('sbSaveTransactions (tentative 2):', e2.message);
+      throw e2;
+    }
   }
 }
 
@@ -754,6 +756,25 @@ function enqueuePending(items, store, date) {
   pendingQueue.push({ items, store, date, ts: Date.now() });
   savePendingQueue();
 }
+
+// Injecter les items pending dans DB (affichage immédiat sans attendre Supabase)
+function applyPendingToDB() {
+  pendingQueue.forEach(entry => {
+    entry.items.forEach(item => {
+      ingestTransaction({
+        product_name: item.name,
+        category: item.category || 'Épicerie',
+        unit: item.unit || 'unité',
+        price: item.unitPrice,
+        weight_g: item.weight_g || null,
+        store: entry.store,
+        date: entry.date,
+        region: null
+      });
+    });
+  });
+}
+
 async function flushPendingQueue() {
   if (!SB_USER_ID || !pendingQueue.length) return;
   const toFlush = [...pendingQueue];
@@ -765,11 +786,14 @@ async function flushPendingQueue() {
       await sbSaveTransactions(entry.items, entry.store, entry.date);
       flushed += entry.items.length;
     } catch(e) {
-      pendingQueue.push(entry); // re-enqueue on failure
+      pendingQueue.push(entry);
       savePendingQueue();
     }
   }
-  if (flushed > 0) showToast(`${flushed} transaction${flushed > 1 ? 's' : ''} offline synchronisée${flushed > 1 ? 's' : ''} ✓`, 'success');
+  if (flushed > 0) {
+    showToast(`${flushed} transaction${flushed > 1 ? 's' : ''} offline synchronisée${flushed > 1 ? 's' : ''} ✓`, 'success');
+    renderSearch(); renderDash();
+  }
 }
 
 // ── Dissocier / regrouper variantes ──────
@@ -1080,19 +1104,22 @@ async function loadSheetDB() {
 }
 
 async function initDB() {
-  // 1. Charger le catalogue depuis Google Sheets (source principale)
+  // 1. Catalogue de base (Google Sheets ou fallback statique)
   const sheetDB = await loadSheetDB();
   if (sheetDB) {
     DB = sheetDB;
   } else {
-    // Fallback: prix_db.json
     try {
       const r = await fetch('prix_db.json');
       DB = await r.json();
     } catch(e) { DB = {}; }
   }
 
-  // 2. Si connecté Supabase, fusionner les transactions perso par-dessus
+  // 2. Afficher immédiatement les items sauvés localement (hors-ligne / invité)
+  //    Ils seront écrasés par Supabase si une version plus récente existe là-bas
+  applyPendingToDB();
+
+  // 3. Fusionner les transactions Supabase par-dessus (si connecté)
   if (SB_USER_ID) {
     showSyncIndicator(true);
     await sbLoadTransactions();
@@ -2072,7 +2099,7 @@ function renderValItem(item, i) {
     <div class="val-edit">
       <div class="val-fields">
         <div class="val-field val-field-full"><label>Nom du produit</label><input data-field="name" type="text" value="${item.name}"></div>
-        <div class="val-field"><label>Catégorie</label><select data-field="category">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nettoyage & maison','Santé & pharmacie','Chocolat & confiseries','Alcool & boissons','Bébé','Loisirs','Quincaillerie','Resto & livraison','Services & abonnements','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
+        <div class="val-field"><label>Catégorie</label><select data-field="category">${['Fruits & légumes','Laitiers & œufs','Épicerie','Viandes & poissons','Boulangerie','Surgelés','Nourriture chien','Nettoyage & maison','Santé & pharmacie','Chocolat & confiseries','Alcool & boissons','Bébé','Loisirs','Quincaillerie','Resto & livraison','Services & abonnements','Autre'].map(c => '<option' + (c === item.category ? ' selected' : '') + '>' + c + '</option>').join('')}</select></div>
         <div class="val-field"><label>Prix ($)</label><input data-field="price" type="number" step="0.01" value="${item.price}"></div>
         <div class="val-field"><label>Quantité</label><input data-field="qty" type="number" step="1" min="1" value="${item.qty || 1}"></div>
         <div class="val-field"><label>Unité / Format</label><input data-field="unit" type="text" value="${item.unit || 'unité'}"></div>
@@ -2081,9 +2108,6 @@ function renderValItem(item, i) {
     </div>
   </div>`;
 }
-
-let pendingItems = [];
-function updateItem(idx, field, val) { pendingItems[idx] = { ...(pendingItems[idx] || {}) }; pendingItems[idx][field] = val; }
 
 function openManualEntry() {
   const today = new Date().toISOString().slice(0, 10);
