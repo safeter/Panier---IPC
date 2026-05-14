@@ -843,8 +843,9 @@ let userRegion = '';
  * Retourne { current, trend, monthlyData }
  */
 function computeIPC() {
-  // Sélection du panier: produits avec ≥3 achats, triés par fréquence
-  const basket = Object.entries(DB)
+  // Panier IPC = achats personnels uniquement (localUserDB), ≥3 achats
+  const src = Object.keys(localUserDB).length ? localUserDB : DB;
+  const basket = Object.entries(src)
     .filter(([, d]) => d.n >= 3 && d.historique && d.historique.length >= 3)
     .sort((a, b) => b[1].n - a[1].n)
     .slice(0, 20);
@@ -1519,19 +1520,21 @@ function renderGroupCard(g) {
 // ══════════════════════════════════════════
 
 function buildAlertsSection() {
-  const allProds = Object.entries(DB).map(([name, d]) => ({ name, ...d }));
+  // Filtré aux achats personnels uniquement (pas le catalogue)
+  const myProds = Object.entries(localUserDB).map(([name, d]) => ({ name, ...d }));
+  if (!myProds.length) return '';
 
-  const overpriced = allProds
+  const overpriced = myProds
     .filter(p => p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH)
     .sort((a, b) => (b.dernier_prix / b.moy) - (a.dernier_prix / a.moy))
     .slice(0, 5);
 
-  const floorPriced = allProds
+  const floorPriced = myProds
     .filter(p => p.dernier_prix <= p.min + 0.01 && p.n >= 3)
     .sort((a, b) => b.n - a.n)
     .slice(0, 3);
 
-  const shrinkItems = allProds.filter(p => detectShrinkflation(p)).slice(0, 3);
+  const shrinkItems = myProds.filter(p => detectShrinkflation(p)).slice(0, 3);
 
   if (!overpriced.length && !floorPriced.length && !shrinkItems.length) return '';
 
@@ -1556,10 +1559,21 @@ function buildAlertsSection() {
 }
 
 function renderDash() {
-  const prods = Object.values(DB);
-  const upItems = prods.filter(p => p.trend === 'up').length;
-  const dnItems = prods.filter(p => p.trend === 'down').length;
-  const recents = Object.entries(DB).sort((a, b) => (b[1].dernier_date || '').localeCompare(a[1].dernier_date || '')).slice(0, 8);
+  // KPIs uniquement sur les achats personnels (localUserDB), pas le catalogue
+  const myProds = Object.values(localUserDB);
+  const myCount = myProds.length;
+  const upItems = myProds.filter(p => p.trend === 'up').length;
+  const dnItems = myProds.filter(p => p.trend === 'down').length;
+
+  // Transactions récentes — toutes les entrées historique de localUserDB, triées par date desc
+  const recentTxs = [];
+  Object.entries(localUserDB).forEach(([name, d]) => {
+    (d.historique || []).forEach(h => {
+      recentTxs.push({ name, store: h.m || '', date: h.d || '', price: h.p, cat: d.cat });
+    });
+  });
+  recentTxs.sort((a, b) => b.date.localeCompare(a.date));
+  const lastTxs = recentTxs.slice(0, 12);
 
   // IPC
   const ipc = computeIPC();
@@ -1568,16 +1582,23 @@ function renderDash() {
   const ipcPctClass = ipcPct > 0 ? 'kpi-up' : ipcPct < 0 ? 'kpi-dn' : '';
 
   const el = document.getElementById('dashContent');
-  const recentRows = recents.map(([rname, d]) => {
-    const icon = CAT_ICONS[d.cat] || '📦';
-    return '<div class="recent-item"><div class="r-icon">' + icon + '</div><div class="r-info"><div class="r-name">' + rname + '</div><div class="r-sub">' + d.dernier_magasin + ' · ' + (d.dernier_date || '') + '</div></div><div class="r-price">$' + (d.dernier_prix || 0).toFixed(2) + '</div></div>';
-  }).join('');
+
+  const txRows = lastTxs.length ? lastTxs.map(t => {
+    const icon = CAT_ICONS[t.cat] || '📦';
+    return '<div class="recent-item" onclick="searchQ=\'' + t.name.replace(/'/g,"\\'") + '\';switchTab(\'search\')">'
+      + '<div class="r-icon">' + icon + '</div>'
+      + '<div class="r-info"><div class="r-name">' + t.name + '</div>'
+      + '<div class="r-sub">' + t.store + ' · ' + t.date + '</div></div>'
+      + '<div class="r-price">$' + (t.price || 0).toFixed(2) + '</div></div>';
+  }).join('') : '<div style="padding:16px;color:var(--text3);font-size:13px">Aucun achat enregistré — scannez votre premier reçu ✏️</div>';
+
   const paywallBlock = !isPro ? '<div style="padding:0 16px 16px"><div class="paywall-banner"><div class="pw-title">Passer à Pro ✦</div><div class="pw-sub">IPC complet, alertes intelligentes, détection shrinkflation et données communautaires québécoises.</div><div class="pw-features"><div class="pw-feat">Votre inflation personnelle en temps réel</div><div class="pw-feat">Alertes prix plancher &amp; dépassement</div><div class="pw-feat">Détection shrinkflation automatique</div></div><div class="pw-price-row"><span class="pw-price">3$</span><span class="pw-per">/ mois</span></div><button class="btn-upgrade" onclick="openPaywall()">Essai gratuit 30 jours</button></div></div>' : '';
+
   el.innerHTML = `
   <div class="dash-section">
     <div class="dash-section-title">Résumé</div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Produits suivis</div><div class="kpi-val">${prods.length}</div><div class="kpi-sub">dans votre historique</div></div>
+      <div class="kpi"><div class="kpi-label">Produits achetés</div><div class="kpi-val">${myCount}</div><div class="kpi-sub">${recentTxs.length} transactions au total</div></div>
       <div class="kpi"><div class="kpi-label">En hausse</div><div class="kpi-val kpi-up">${upItems}</div><div class="kpi-sub kpi-dn">${dnItems} en baisse</div></div>
     </div>
     <div class="kpi-row">
@@ -1589,15 +1610,13 @@ function renderDash() {
   ${buildAlertsSection()}
   ${paywallBlock}
   <div class="dash-section">
-    <div class="dash-section-title">Derniers prix consultés</div>
-    <div class="recent-list">
-      ${recentRows}
-    </div>
+    <div class="dash-section-title">Mes derniers achats</div>
+    <div class="recent-list">${txRows}</div>
   </div>`;
 }
 
 function countAlerts() {
-  return Object.values(DB).filter(p => p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH).length;
+  return Object.values(localUserDB).filter(p => p.dernier_prix > p.moy * ALERT_THRESHOLD_HIGH).length;
 }
 
 // ══════════════════════════════════════════
