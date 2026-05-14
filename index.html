@@ -659,11 +659,12 @@ async function sbLoadTransactions() {
       `/rest/v1/transactions?user_id=eq.${SB_USER_ID}&select=*&order=date.asc&limit=2000`
     );
     if (!rows || !rows.length) return;
-    // Retirer du DB les produits couverts par Supabase (évite le double-comptage avec le Sheet)
     const sbProducts = new Set(rows.map(r => r.product_name).filter(Boolean));
     sbProducts.forEach(name => { delete DB[name]; });
-    // Reconstruire depuis les transactions Supabase
     rows.forEach(tx => ingestTransaction(tx));
+    // Mettre à jour le cache local avec les données Supabase (la source la plus complète)
+    sbProducts.forEach(name => { if (DB[name]) localUserDB[name] = JSON.parse(JSON.stringify(DB[name])); });
+    saveLocalUserDB();
   } catch(e) { console.warn('sbLoadTransactions', e.message); }
 }
 
@@ -752,6 +753,16 @@ async function sbCommunityPrices(productName, region) {
 
 // ── File d'attente offline ─────────────────
 let pendingQueue = JSON.parse(localStorage.getItem('panier_queue') || '[]');
+
+// ── Cache local permanent (survit aux refresh sans Supabase) ──────────────
+let localUserDB = {};
+try { localUserDB = JSON.parse(localStorage.getItem('panier_local_db') || '{}'); } catch(e) { localUserDB = {}; }
+function saveLocalUserDB() {
+  try { localStorage.setItem('panier_local_db', JSON.stringify(localUserDB)); } catch(e) { console.warn('localStorage plein:', e.message); }
+}
+function markUserProduct(name) {
+  if (DB[name]) { localUserDB[name] = JSON.parse(JSON.stringify(DB[name])); saveLocalUserDB(); }
+}
 function savePendingQueue() { localStorage.setItem('panier_queue', JSON.stringify(pendingQueue)); }
 function enqueuePending(items, store, date) {
   pendingQueue.push({ items, store, date, ts: Date.now() });
@@ -1116,11 +1127,14 @@ async function initDB() {
     } catch(e) { DB = {}; }
   }
 
-  // 2. Afficher immédiatement les items sauvés localement (hors-ligne / invité)
-  //    Ils seront écrasés par Supabase si une version plus récente existe là-bas
+  // 2. Superposer le cache local permanent (données utilisateur sauvegardées dans localStorage)
+  //    Garantit que les données perso survivent au refresh même sans réseau
+  if (Object.keys(localUserDB).length) Object.assign(DB, localUserDB);
+
+  // 3. Items de la file d'attente offline (non encore synchros)
   applyPendingToDB();
 
-  // 3. Fusionner les transactions Supabase par-dessus (si connecté)
+  // 4. Fusionner les transactions Supabase (source la plus complète si disponible)
   if (SB_USER_ID) {
     showSyncIndicator(true);
     await sbLoadTransactions();
@@ -1779,6 +1793,7 @@ function handleJSONImport(e) {
       }
 
       itemsToSave.push({ name: item.name, category: item.category || 'Épicerie', unit: item.unit || 'unité', unitPrice, weight_g, p100g });
+      markUserProduct(item.name);
       added++;
     });
 
@@ -1892,6 +1907,7 @@ async function doLogout() {
   await sbSignOut();
   currentUser = null; isPro = false; userRegion = '';
   localStorage.removeItem('panier_sb_session');
+  localUserDB = {}; localStorage.removeItem('panier_local_db');
   DB = {};
   document.getElementById('screen-app').style.display = 'none';
   document.getElementById('screen-auth').classList.add('active');
@@ -2283,6 +2299,7 @@ function confirmReceipt() {
         }
       }
     }
+    markUserProduct(item.name);
     added++;
   });
 
