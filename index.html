@@ -2180,9 +2180,10 @@ function parseReceiptText(raw) {
   // Abréviations Super C → noms complets
   const ABBREVS = [['IRRS\\.?','Irrésistibles'],['NATUR\\.?','Nature'],['DMONTE','Del Monte'],['LILYJ\\.?',"Lily's Kitchen"],['CAFEWILL\\.?','Café Willoughby'],['LACT\\.?','Lactantia'],['\\bFS\\b','Fontaine Santé'],['\\bBC\\b','Boucherie']];
   // Lignes à ignorer (pas des produits) — "rabais" géré séparément
-  const SKIP_RE = /sous-total|subtotal|\btotal\b|tps|tvq|gst|qst|\btax\b|espèces|\bcash\b|visa|mastercard|débit|debit|monnaie|change|merci|thank|caisse|cashier|\btel\b|tél|www\.|\.com|points\s+bonus|point\s+prime|économi|remise|coupon|solde\s+point|balance|\bno\b\s+de|\breg\b|\bvente\b|\bclient\b|facture|invoice|reçu\s*no|receipt|\bitem\b\s+\d|\bauthori|\bapprouv/i;
-  const PRICE_RE = /(\d{1,3}[.,]\d{2})\s*[ABCF]?\s*$/;
-  const RABAIS_RE = /^rabais\s+[-−]?(\d+[.,]\d{2})/i;
+  const SKIP_RE = /sous-total|subtotal|\btotal\b|tps|tvq|gst|qst|\btax\b|espèces|\bcash\b|visa|mastercard|débit|debit|monnaie|change|merci|thank|caisse|cashier|\btel\b|tél|www\.|\.com|points\s+bonus|point\s+prime|économi|remise|coupon|solde|balance|\bno\b\s+de|\breg\b|\bvente\b|\bclient\b|facture|invoice|reçu\s*no|receipt|\bauthori|\bapprouv/i;
+  // Tesseract sort souvent "2 49" (espace) au lieu de "2.49" → [.,\s] accepte les trois
+  const PRICE_RE = /(\d{1,3}[.,\s]\d{2})\s*[ABCF]?\s*$/;
+  const RABAIS_RE = /^rabais\s+[-−]?(\d+[.,\s]\d{2})/i;
   const QTY_AT_RE = /^(\d+)\s*[@x×]\s*\$?(\d+[.,]\d{2})/i;   // "2 @ $3.99" ou "2 x 3.99"
   const KG_RE = /(\d+[.,]\d{3})\s*kg\s*[@x×]\s*\$?(\d+[.,]\d{2})/i; // "0.453 kg @ $8.79"
   const DATE_RE = /\b(\d{4}-\d{2}-\d{2}|\d{2}[\/\-]\d{2}[\/\-]\d{2,4})\b/;
@@ -2211,7 +2212,7 @@ function parseReceiptText(raw) {
     // Rabais → appliqué au dernier item, marque is_promo
     const rabaisM = line.match(RABAIS_RE);
     if (rabaisM && items.length) {
-      const disc = parseFloat(rabaisM[1].replace(',','.'));
+      const disc = parseFloat(rabaisM[1].replace(/[\s,]/, '.'));
       const last = items[items.length - 1];
       last.price = Math.max(0, parseFloat((last.price - disc).toFixed(2)));
       last.is_promo = true;
@@ -2252,9 +2253,11 @@ function parseReceiptText(raw) {
     // Ligne standard: prix en fin de ligne
     const pm = line.match(PRICE_RE);
     if (!pm) continue;
-    const price = parseFloat(pm[1].replace(',','.'));
+    // Normalise "2 49", "2,49", "2.49" → 2.49
+    const price = parseFloat(pm[1].replace(/[\s,]/, '.'));
     if (price <= 0 || price > 500) continue;
-    let name = line.slice(0, line.lastIndexOf(pm[0])).replace(/\s+/g,' ').trim();
+    // pm.index + pm[0].length = fin du match; on coupe avant le début du prix
+    let name = line.slice(0, pm.index !== undefined ? pm.index : line.lastIndexOf(pm[0])).replace(/\s+/g,' ').trim();
     if (name.length < 2 || /^\d+$/.test(name)) continue;
 
     const wg  = (name.match(/(\d+)\s*g\b/i)||[])[1];
